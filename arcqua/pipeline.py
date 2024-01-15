@@ -3,15 +3,21 @@ import os
 from astropy.time import Time
 import astropy.units as u
 
-def download_archival_velocities(day,month,year,fname='download.nc'):
+def download_archival_velocities(day,month,year,fname=None):
     c = cdsapi.Client()
+    if not fname:
+        tStart=Time(f'{year}-{month}-{day}T00:00:00.000')
+        fname=f'{tStart.value[:4]}{tStart.value[5:7]}{tStart.value[8:10]}.nc'
     c.retrieve(
         'reanalysis-era5-single-levels',
         {
             'product_type': 'reanalysis',
             'variable': [
-                '10m_u_component_of_neutral_wind', '10m_u_component_of_wind', '10m_v_component_of_neutral_wind',
+                '10m_u_component_of_wind',
                 '10m_v_component_of_wind',
+                'mean_direction_of_total_swell',
+                'mean_direction_of_wind_waves',
+                'mean_wave_direction',
             ],
             'year': f'{year}',
             'month': f'{month}',
@@ -38,3 +44,7 @@ def download_CYGNNS_data(day,month,year):
     prefix = f'podaac-data-downloader -c CYGNSS_L1_V3.1 -d {outputDir} --start-date '
     cmd = prefix + tStart.value[:-4]+'Z --end-date '+tEnd.value[:-4]+'Z -e \"\"'
     os.system(cmd)
+
+def full_download(day,month,year,fname=None):
+    download_CYGNNS_data(day,month,year)
+    download_archival_velocities(day,month,year,fname=fname)
