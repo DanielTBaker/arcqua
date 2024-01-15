@@ -348,6 +348,8 @@ def fitPeaks(
             rightPeaks[i] = np.nan
             leftError[i] = np.nan
             rightError[i] = np.nan
+            fitsLeft.append(np.array([np.nan,np.nan,np.nan]))
+            fitsRight.append(np.array([np.nan,np.nan,np.nan]))
     
     leftPeaks = leftPeaks[np.isfinite(leftPeaks)]
     rightPeaks = rightPeaks[np.isfinite(rightPeaks)]
