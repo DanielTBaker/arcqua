@@ -277,91 +277,101 @@ def fitPeaks(
     fitsLeft = list()
     fitsRight = list()
     for i in range(n2):
-        # try:
-        idx = np.argwhere(leftPower[i] == leftPower[i].max()).max()
-        thetas_fit = leftTheta[max((idx - hfw, 0)) : min((idx + hfw + 1, leftPower.shape[1]))]
-        powers_fit = leftPower[i,max((idx - hfw, 0)) : min((idx + hfw + 1, leftPower.shape[1]))]
+        try:
+            idx = np.argwhere(leftPower[i] == leftPower[i].max()).max()
+            thetas_fit = leftTheta[max((idx - hfw, 0)) : min((idx + hfw + 1, leftPower.shape[1]))]
+            powers_fit = leftPower[i,max((idx - hfw, 0)) : min((idx + hfw + 1, leftPower.shape[1]))]
 
-        ## Initial Guesses
-        C = powers_fit.max()
-        x0 = thetas_fit[powers_fit == C][0]
-        if x0 == thetas_fit[0]:
-            A = (powers_fit[-1] - C) / ((thetas_fit[-1] - x0) ** 2)
-        else:
-            A = (powers_fit[0] - C) / ((thetas_fit[0] - x0) ** 2)
+            ## Initial Guesses
+            C = powers_fit.max()
+            x0 = thetas_fit[powers_fit == C][0]
+            if x0 == thetas_fit[0]:
+                A = (powers_fit[-1] - C) / ((thetas_fit[-1] - x0) ** 2)
+            else:
+                A = (powers_fit[0] - C) / ((thetas_fit[0] - x0) ** 2)
 
-        ## Fit parabola around peak
-        popt, pcov = THTH.curve_fit(
-            THTH.chi_par, thetas_fit, powers_fit, p0=np.array([A, x0, C])
-        )
-        fitsLeft.append(popt)
-        err = np.std(powers_fit - THTH.chi_par(thetas_fit, *popt)) * np.ones(
-            thetas_fit.shape[0]
-        )
-        popt, pcov = THTH.curve_fit(
-            THTH.chi_par,
-            thetas_fit,
-            powers_fit,
-            p0=popt,
-            sigma=err,
-            absolute_sigma=True,
-        )
-        leftPeaks[i] = popt[1]
-        leftError[i] = np.sqrt(
-            (powers_fit - THTH.chi_par(thetas_fit, *popt)).std() / np.abs(popt[0])
-        )
+            ## Fit parabola around peak
+            popt, pcov = THTH.curve_fit(
+                THTH.chi_par, thetas_fit, powers_fit, p0=np.array([A, x0, C])
+            )
+            fitsLeft.append(popt)
+            err = np.std(powers_fit - THTH.chi_par(thetas_fit, *popt)) * np.ones(
+                thetas_fit.shape[0]
+            )
+            popt, pcov = THTH.curve_fit(
+                THTH.chi_par,
+                thetas_fit,
+                powers_fit,
+                p0=popt,
+                sigma=err,
+                absolute_sigma=True,
+            )
+            leftPeaks[i] = popt[1]
+            leftError[i] = np.sqrt(
+                (powers_fit - THTH.chi_par(thetas_fit, *popt)).std() / np.abs(popt[0])
+            )
 
-        idx = np.argwhere(rightPower[i] == rightPower[i].max()).max()
-        thetas_fit = rightTheta[max((idx - hfw, 0)) : min((idx + hfw + 1, leftPower.shape[1]))]
-        powers_fit = rightPower[i,max((idx - hfw, 0)) : min((idx + hfw + 1, leftPower.shape[1]))]
+            idx = np.argwhere(rightPower[i] == rightPower[i].max()).max()
+            thetas_fit = rightTheta[max((idx - hfw, 0)) : min((idx + hfw + 1, leftPower.shape[1]))]
+            powers_fit = rightPower[i,max((idx - hfw, 0)) : min((idx + hfw + 1, leftPower.shape[1]))]
 
-        ## Initial Guesses
-        C = powers_fit.max()
-        x0 = thetas_fit[powers_fit == C][0]
-        if x0 == thetas_fit[0]:
-            A = (powers_fit[-1] - C) / ((thetas_fit[-1] - x0) ** 2)
-        else:
-            A = (powers_fit[0] - C) / ((thetas_fit[0] - x0) ** 2)
+            ## Initial Guesses
+            C = powers_fit.max()
+            x0 = thetas_fit[powers_fit == C][0]
+            if x0 == thetas_fit[0]:
+                A = (powers_fit[-1] - C) / ((thetas_fit[-1] - x0) ** 2)
+            else:
+                A = (powers_fit[0] - C) / ((thetas_fit[0] - x0) ** 2)
 
-        ## Fit parabola around peak
-        popt, pcov = THTH.curve_fit(
-            THTH.chi_par, thetas_fit, powers_fit, p0=np.array([A, x0, C])
-        )
-        fitsRight.append(popt)
-        err = np.std(powers_fit - THTH.chi_par(thetas_fit, *popt)) * np.ones(
-            thetas_fit.shape[0]
-        )
-        popt, pcov = THTH.curve_fit(
-            THTH.chi_par,
-            thetas_fit,
-            powers_fit,
-            p0=popt,
-            sigma=err,
-            absolute_sigma=True,
-        )
-        rightPeaks[i] = popt[1]
-        rightError[i] = np.sqrt(
-            (powers_fit - THTH.chi_par(thetas_fit, *popt)).std() / np.abs(popt[0])
-        )
-        # except:
-        #     leftPeaks[i] = np.nan
-        #     rightPeaks[i] = np.nan
-        #     leftError[i] = np.nan
-        #     rightError[i] = np.nan
+            ## Fit parabola around peak
+            popt, pcov = THTH.curve_fit(
+                THTH.chi_par, thetas_fit, powers_fit, p0=np.array([A, x0, C])
+            )
+            fitsRight.append(popt)
+            err = np.std(powers_fit - THTH.chi_par(thetas_fit, *popt)) * np.ones(
+                thetas_fit.shape[0]
+            )
+            popt, pcov = THTH.curve_fit(
+                THTH.chi_par,
+                thetas_fit,
+                powers_fit,
+                p0=popt,
+                sigma=err,
+                absolute_sigma=True,
+            )
+            rightPeaks[i] = popt[1]
+            rightError[i] = np.sqrt(
+                (powers_fit - THTH.chi_par(thetas_fit, *popt)).std() / np.abs(popt[0])
+            )
+        except:
+            leftPeaks[i] = np.nan
+            rightPeaks[i] = np.nan
+            leftError[i] = np.nan
+            rightError[i] = np.nan
     
     leftPeaks = leftPeaks[np.isfinite(leftPeaks)]
     rightPeaks = rightPeaks[np.isfinite(rightPeaks)]
     leftError = leftError[np.isfinite(leftError)]
     rightError = rightError[np.isfinite(rightError)]
-    n2 = leftPeaks.shape[0]
-    leftMean = np.sum(leftPeaks / leftError**2) / np.sum(1 / leftError**2)
-    rightMean = np.sum(rightPeaks / rightError**2) / np.sum(1 / rightError**2)
-    leftErr = 1 / np.sqrt(np.sum(np.sum(1 / leftError**2)))
-    rightErr = 1 / np.sqrt(np.sum(np.sum(1 / rightError**2)))
-    leftChi = np.sum(((leftPeaks - leftMean) / leftError) ** 2) / (n2 - 1)
-    rightChi = np.sum(((rightPeaks - rightMean) / rightError) ** 2) / (n2 - 1)
-    leftStd = leftPeaks.std()
-    rightStd = rightPeaks.std()
+    if leftPeaks.shape[0]>1:
+        n2 = leftPeaks.shape[0]
+        leftMean = np.sum(leftPeaks / leftError**2) / np.sum(1 / leftError**2)
+        rightMean = np.sum(rightPeaks / rightError**2) / np.sum(1 / rightError**2)
+        leftErr = 1 / np.sqrt(np.sum(np.sum(1 / leftError**2)))
+        rightErr = 1 / np.sqrt(np.sum(np.sum(1 / rightError**2)))
+        leftChi = np.sum(((leftPeaks - leftMean) / leftError) ** 2) / (n2 - 1)
+        rightChi = np.sum(((rightPeaks - rightMean) / rightError) ** 2) / (n2 - 1)
+        leftStd = leftPeaks.std()
+        rightStd = rightPeaks.std()
+    else:
+        leftMean=np.nan
+        rightMean=np.nan
+        leftChi=np.nan
+        rightChi=np.nan
+        leftErr=np.nan
+        rightErr=np.nan
+        leftStd=np.nan
+        rightStd=np.nan
     fitRes = {'left' : {}, 'right' : {}}
     fitRes['left'].update({'mean' : leftMean})
     fitRes['left'].update({'err' : leftErr})
