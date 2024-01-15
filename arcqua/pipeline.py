@@ -31,10 +31,6 @@ def download_archival_velocities(day,month,year,fname='download.nc'):
         fname)
     
 def download_CYGNNS_data(day,month,year):
-    if month<10:
-        month='0'+str(month)
-    if day<10:
-        day='0'+str(day)
     tStart=Time(f'{year}-{month}-{day}T00:00:00.000')
     tEnd=tStart+1*u.day
     currentDir = os.getcwd()
