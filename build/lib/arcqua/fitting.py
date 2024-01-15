@@ -227,19 +227,14 @@ def search(
     edgelim=0,
 ):
     nSource = emitters.shape[0]
-    xAxis, yAxis, zAxis, psis, des, drs = coords(emitters, speculars, receiver)
-    emitterVels2 = convertToSpecular(emitterVels, xAxis, yAxis, zAxis)
-    receiverVel2 = convertToSpecular(receiverVel, xAxis, yAxis, zAxis)
-    rHats = np.array([np.cos(psis).value, np.zeros(nSource), np.sin(psis).value]).T
-    eHats = np.array([-np.cos(psis).value, np.zeros(nSource), np.sin(psis).value]).T
     powers = np.zeros((nSource,thetas.shape[0]))
-    dots = np.zeros((nSource,thetas.shape[0]))
+    asymm = np.zeros((nSource,thetas.shape[0]))
 
     dopplerPad,delayPad,ddmsPad = pad_DDM(ddms,doppler,delay,fd0,tau0)
     for i in range(thetas.shape[0]):
         # try:
 
-        powers[:, i], dots[:, i] = powerCalc(
+        powers[:, i], asymm[:, i] = powerCalc(
             thetas[i],
             ddmsPad,
             dopplerPad,
@@ -255,19 +250,7 @@ def search(
             nedge=nedge,
             edgelim=edgelim,
         )
- 
-        thetaWs = thetaConvert(thetas[i], xAxis, yAxis, zAxis)
-        thetaIs = wavesToImages(thetaWs, psis)
-        sHats = np.array([np.cos(thetaIs).value, np.sin(thetaIs).value, np.zeros(nSource)]).T
-        cosProd = np.cos(psis) * np.cos(thetaIs)
-        Bs = receiverVel2 * (
-            sHats - rHats * cosProd[:,np.newaxis]
-        ) + emitterVels2 * (sHats + eHats * cosProd[:,np.newaxis]) * (
-            drs / des
-        )[:,np.newaxis]
-        dots[:,i] *= np.sign(np.sum(Bs, 1))
-
-    return powers, dots
+    return powers, asymm
 
 def fitPeaks(
     emitters,

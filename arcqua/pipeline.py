@@ -1,6 +1,7 @@
 import cdsapi
 import os
 from astropy.time import Time
+import astropy.units as u
 
 def download_archival_velocities(day,month,year,fname='download.nc'):
     c = cdsapi.Client()
