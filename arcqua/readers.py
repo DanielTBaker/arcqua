@@ -19,11 +19,14 @@ import matplotlib.pyplot as plt
 
 from tqdm import tqdm
 
+import arcqua.fitting as af
+
 
 class DDMI:
 
     def __init__(self,fname,source='CYGNSS'):
         if source == 'CYGNSS':
+            self.freq = 1.57542 * u.GHz
             data = xr.open_dataset(fname)
 
             self.startTime = Time(data.time_coverage_start)
@@ -57,13 +60,13 @@ class DDMI:
             observerVZ = np.array(data.sc_vel_z)
             
 
-            self.sourcePos = np.transpose(np.array([sourceX, sourceY, sourceZ]), (1, 2, 0))
-            self.specularPos = np.transpose(np.array([specularX, specularY, specularZ]), (1, 2, 0))
-            self.observerPos = np.array([observerX, observerY, observerZ]).T
+            self.sourcePos = np.transpose(np.array([sourceX, sourceY, sourceZ]), (1, 2, 0))*u.m
+            self.specularPos = np.transpose(np.array([specularX, specularY, specularZ]), (1, 2, 0))*u.m
+            self.observerPos = np.array([observerX, observerY, observerZ]).T*u.m
 
-            self.sourceVel = np.transpose(np.array([sourceVX, sourceVY, sourceVZ]), (1, 2, 0))
-            self.specularVel = np.transpose(np.array([specularVX, specularVY, specularVZ]), (1, 2, 0))
-            self.observerVel = np.array([observerVX, observerVY, observerVZ]).T
+            self.sourceVel = np.transpose(np.array([sourceVX, sourceVY, sourceVZ]), (1, 2, 0))*u.m/u.s
+            self.specularVel = np.transpose(np.array([specularVX, specularVY, specularVZ]), (1, 2, 0))*u.m/u.s
+            self.observerVel = np.array([observerVX, observerVY, observerVZ]).T*u.m/u.s
 
             ## Delay and Doppler
             self.nDoppler = data.dims['doppler']
@@ -124,7 +127,7 @@ class DDMI:
         arch=np.load(os.path.join(dir,f'{self.date}-cyg01-4source_fits_full.npz'))
         powers=arch['powers']
         asymm=arch['asymm']
-        thetas=arch['thetas']
+        thetas=arch['thetas']*u.deg
         fitPars=arch['fitPars']
         fitRes=arch['fitRes']
         sampleNumber=arch['sampleNumber']
@@ -135,3 +138,41 @@ class DDMI:
         self.fits[nSource].update({'fitRes' : fitRes})
         self.fits[nSource].update({'sampleNumber' : sampleNumber})
         self.fits[nSource].update({'best' : fitRes[:,:,1]==fitRes[:,:,1].min(1)[:,np.newaxis]})
+    
+    def read_archive(self,dir='.'):
+        self.archival = xr.load_dataset(os.path.join(dir,f'{self.date}.nc'))
+
+    def _build_results(self,results,pars):
+        names=['left','right']
+        best=names[np.argmin(results[:,2])]
+        worst=names[1-np.argmin(results[:,2])]
+        fitRes = {}
+        fitRes.update({'left':{}})
+        fitRes.update({'right':{}})
+        fitRes.update({'best':best})
+        fitRes.update({'worst':worst})
+        for i in range(2):
+            fitRes[names[i]].update({'mean': results[i,0]})
+            fitRes[names[i]].update({'err': results[i,1]})
+            fitRes[names[i]].update({'chi': results[i,2]})
+            fitRes[names[i]].update({'std': results[i,3]})
+            fitRes[names[i]].update({'fits': pars[i]})
+        return(fitRes)
+    
+    def plot_sample(self,nSample,nSource,fname=None):
+        nSampleFull = self.fits[nSource]['sampleNumber'][nSample]
+        goodDDM = np.invert(self.isError[nSampleFull])
+        fitRes = self._build_results(self.fits[nSource]['fitRes'][nSample],self.fits[nSource]['fitPars'][nSample])
+        af.single_plot(self.brcs[nSampleFull,goodDDM],
+                self.sourcePos[nSampleFull,goodDDM],
+                self.specularPos[nSampleFull,goodDDM],
+                self.observerPos[nSampleFull],
+                self.sourceVel[nSampleFull,goodDDM],
+                self.observerVel[nSampleFull],
+                self.delay,self.doppler,
+                self.tau0[nSampleFull,goodDDM],self.fd0[nSampleFull,goodDDM],
+                self.freq,
+                fitRes,
+                self.fits[nSource]['thetas'][nSample],
+                self.fits[nSource]['powers'][nSample],
+                fname=fname)
