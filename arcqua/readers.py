@@ -75,17 +75,10 @@ class DDMI:
             self.tau0 = np.array(data.brcs_ddm_sp_bin_delay_row)*float(data.delay_resolution)*self.chipSize+self.delay[0]
             self.fd0 = np.array(data.brcs_ddm_sp_bin_dopp_col)*float(data.dopp_resolution)*u.Hz+self.doppler[0]
 
-            year = str(self.startTime.datetime.year)
-            month = self.startTime.datetime.month
-            day = self.startTime.datetime.day
-            if month<10:
-                month = '0'+str(month)
-            else:
-                month=str(month)
-            if day<10:
-                day = '0'+str(day)
-            else:
-                day=str(day)  
+            timeString = self.startTime.value
+            year=timeString.split('-')[0]
+            month=timeString.split('-')[1]
+            day=timeString.split('-')[2].split('T')[0]
             self.date=year+month+day
 
     def repack_data(self,dir='.'):
@@ -123,3 +116,22 @@ class DDMI:
                 gpsCode=tempGPS,
                 sampleNumber=hasCount,
             )
+    
+    def read_fits(self,dir='.'):
+        self.fits={}
+        nSource=4
+        self.fits.update({nSource : {}})
+        arch=np.load(os.path.join(dir,f'{self.date}-cyg01-4source_fits_full.npz'))
+        powers=arch['powers']
+        asymm=arch['asymm']
+        thetas=arch['thetas']
+        fitPars=arch['fitPars']
+        fitRes=arch['fitRes']
+        sampleNumber=arch['sampleNumber']
+        self.fits[nSource].update({'powers' : powers})
+        self.fits[nSource].update({'thetas' : thetas})
+        self.fits[nSource].update({'asymm' : asymm})
+        self.fits[nSource].update({'fitPars' : fitPars})
+        self.fits[nSource].update({'fitRes' : fitRes})
+        self.fits[nSource].update({'sampleNumber' : sampleNumber})
+        self.fits[nSource].update({'best' : fitRes[:,:,1]==fitRes[:,:,1].min(1)[:,np.newaxis]})

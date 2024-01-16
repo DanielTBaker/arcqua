@@ -341,7 +341,7 @@ def fitPeaks(
                 sigma=err,
                 absolute_sigma=True,
             )
-            fitsLeft[i,:]=np.copy(popt)
+            fitsRight[i,:]=np.copy(popt)
             rightPeaks[i] = popt[1]
             rightError[i] = np.sqrt(
                 (powers_fit - THTH.chi_par(thetas_fit, *popt)).std() / np.abs(popt[0])
