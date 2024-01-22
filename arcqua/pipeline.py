@@ -3,11 +3,11 @@ import os
 from astropy.time import Time
 import astropy.units as u
 
-def download_archival_velocities(day,month,year,fname=None):
+def download_archival_velocities(day,month,year,outputDir='.'):
     c = cdsapi.Client()
-    if not fname:
-        tStart=Time(f'{year}-{month}-{day}T00:00:00.000')
-        fname=f'{tStart.value[:4]}{tStart.value[5:7]}{tStart.value[8:10]}.nc'
+    tStart=Time(f'{year}-{month}-{day}T00:00:00.000')
+    fname=f'{tStart.value[:4]}{tStart.value[5:7]}{tStart.value[8:10]}.nc'
+    fname=os.path.join(outputDir,fname)
     c.retrieve(
         'reanalysis-era5-single-levels',
         {
@@ -36,15 +36,18 @@ def download_archival_velocities(day,month,year,fname=None):
         },
         fname)
     
-def download_CYGNNS_data(day,month,year):
+def download_CYGNNS_data(day,month,year,outputDir='.'):
     tStart=Time(f'{year}-{month}-{day}T00:00:00.000')
     tEnd=tStart+1*u.day
-    currentDir = os.getcwd()
-    outputDir = os.path.join(currentDir,'data')
+    outputDir = os.path.join(outputDir,'data')
     prefix = f'podaac-data-downloader -c CYGNSS_L1_V3.1 -d {outputDir} --start-date '
     cmd = prefix + tStart.value[:-4]+'Z --end-date '+tEnd.value[:-4]+'Z -e \"\"'
     os.system(cmd)
 
-def full_download(day,month,year,fname=None):
-    download_CYGNNS_data(day,month,year)
-    download_archival_velocities(day,month,year,fname=fname)
+def full_download(day,month,year,outputDir='.'):
+    cygnssDir = os.path.join(outputDir,'CYGNSS')
+    os.makedirs(cygnssDir,exist_ok=True)
+    archivalDir = os.path.join(outputDir,'archival')
+    os.makedirs(archivalDir,exist_ok=True)
+    download_CYGNNS_data(day,month,year,outputDir=cygnssDir)
+    download_archival_velocities(day,month,year,outputDir=archivalDir)
