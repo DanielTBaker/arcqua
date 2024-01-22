@@ -122,22 +122,25 @@ class DDMI:
     
     def read_fits(self,dir='.'):
         self.fits={}
-        nSource=4
-        self.fits.update({nSource : {}})
-        arch=np.load(os.path.join(dir,f'{self.date}-cyg01-4source_fits_full.npz'))
-        powers=arch['powers']
-        asymm=arch['asymm']
-        thetas=arch['thetas']*u.deg
-        fitPars=arch['fitPars']
-        fitRes=arch['fitRes']
-        sampleNumber=arch['sampleNumber']
-        self.fits[nSource].update({'powers' : powers})
-        self.fits[nSource].update({'thetas' : thetas})
-        self.fits[nSource].update({'asymm' : asymm})
-        self.fits[nSource].update({'fitPars' : fitPars})
-        self.fits[nSource].update({'fitRes' : fitRes})
-        self.fits[nSource].update({'sampleNumber' : sampleNumber})
-        self.fits[nSource].update({'best' : fitRes[:,:,1]==fitRes[:,:,1].min(1)[:,np.newaxis]})
+        for nSource in np.array([2,3,4]):
+            try:
+                arch=np.load(os.path.join(dir,f'{self.date}-cyg0{self.cygNumber}-{nSource}source_fits_full.npz'))
+                self.fits.update({nSource : {}})
+                powers=arch['powers']
+                asymm=arch['asymm']
+                thetas=arch['thetas']*u.deg
+                fitPars=arch['fitPars']
+                fitRes=arch['fitRes']
+                sampleNumber=arch['sampleNumber']
+                self.fits[nSource].update({'powers' : powers})
+                self.fits[nSource].update({'thetas' : thetas})
+                self.fits[nSource].update({'asymm' : asymm})
+                self.fits[nSource].update({'fitPars' : fitPars})
+                self.fits[nSource].update({'fitRes' : fitRes})
+                self.fits[nSource].update({'sampleNumber' : sampleNumber})
+                self.fits[nSource].update({'best' : fitRes[:,:,1]==fitRes[:,:,1].min(1)[:,np.newaxis]})
+            except:
+                print(f'{nSource} fit does not exist for cyg{self.cygNumber} on {self.date}')
     
     def read_archive(self,dir='.'):
         self.archival = xr.load_dataset(os.path.join(dir,f'{self.date}.nc'))
@@ -177,35 +180,62 @@ class DDMI:
                 self.fits[nSource]['powers'][nSample],
                 fname=fname)
         
-    def _calc_UV_thetas(self,nSource,nSample):
-        nSampleFull = self.fits[nSource]['sampleNumber'][nSample]
+    def _calc_UV_thetas(self, nSource, nSample):
+        nSampleFull = self.fits[nSource]["sampleNumber"][nSample]
         goodDDM = np.invert(self.isError[nSampleFull])
-        fitRes = self._build_results(self.fits[nSource]['fitRes'][nSample],self.fits[nSource]['fitPars'][nSample])
-        speculars = self.specularPos[nSampleFull,goodDDM]
-        emitters = self.sourcePos[nSampleFull,goodDDM]
+        fitRes = self._build_results(
+            self.fits[nSource]["fitRes"][nSample], self.fits[nSource]["fitPars"][nSample]
+        )
+        speculars = self.specularPos[nSampleFull, goodDDM]
+        emitters = self.sourcePos[nSampleFull, goodDDM]
         receiver = self.observerPos[nSampleFull]
-        eLoc = EarthLocation(x=speculars[0][0],
-                             y=speculars[0][1],
-                             z=speculars[0][2])
-        lon=eLoc.lon
-        lat=eLoc.lat
-        time=self.time[nSampleFull]
-        idLon=np.argmin(np.abs(np.array(self.archival.longitude)*u.deg-lon))
-        idLat=np.argmin(np.abs(np.array(self.archival.latitude)*u.deg-lat))
-        idTime=np.argmin(np.abs(Time(np.array(self.archival.time))-time))
+        eLoc = EarthLocation(x=speculars[:, 0], y=speculars[:, 1], z=speculars[:, 2])
+        lon = eLoc.lon
+        lat = eLoc.lat
+        time = self.time[nSampleFull]
+        idLon = np.argmin(
+            np.abs(np.array(self.archival.longitude) * u.deg - lon[:, np.newaxis]), 1
+        )
+        idLat = np.argmin(
+            np.abs(np.array(self.archival.latitude) * u.deg - lat[:, np.newaxis]), 1
+        )
+        idTime = np.argmin(np.abs(Time(np.array(self.archival.time)) - time))
 
-        ddmUV = af.toUV(emitters,
+        ddmUV = (
+            np.array(
+                [
+                    af.toUV(
+                        emitters,
                         speculars,
                         receiver,
-                        fitRes[fitRes['best']]['mean']*u.deg
-                        )*u.m/u.s
-        ddmTheta = np.mod(np.arctan2(*ddmUV).to(u.deg)-180*u.deg,360*u.deg)
+                        fitRes[fitRes["best"]]["mean"] * u.deg,
+                        i,
+                    )
+                    for i in range(nSource)
+                ]
+            )
+            * u.m
+            / u.s
+        )
+        ddmTheta = np.mod(
+            np.arctan2(ddmUV[:, 0], ddmUV[:, 1]).to(u.deg) - 180 * u.deg, 360 * u.deg
+        )
+        archiveUV = (
+            np.array(
+                [
+                    self.archival.u10[idTime, idLat, idLon],
+                    self.archival.v10[idTime, idLat, idLon],
+                ]
+            )
+            * u.m
+            / u.s
+        )
+        archiveTheta = np.diag(
+            np.mod(np.arctan2(*archiveUV).to(u.deg) - 180 * u.deg, 360 * u.deg)
+        )
+        archiveSpeed = np.diag(np.sqrt(np.sum(archiveUV**2,0)))
 
-        archiveUV = np.array([self.archival.u10[idTime,idLat,idLon],
-                              self.archival.v10[idTime,idLat,idLon]])*u.m/u.s
-        archiveTheta = np.mod(np.arctan2(*archiveUV).to(u.deg)-180*u.deg,360*u.deg)
-
-        mwd=self.archival.mwd[idTime,idLat,idLon].values.min()*u.deg
-        mdww=self.archival.mdww[idTime,idLat,idLon].values.min()*u.deg
-        mdts=self.archival.mdts[idTime,idLat,idLon].values.min()*u.deg
-        return(ddmTheta,archiveTheta,mwd,mdww,mdts)
+        mwd = np.diag(self.archival.mwd[idTime, idLat, idLon].values) * u.deg
+        mdww = np.diag(self.archival.mdww[idTime, idLat, idLon].values * u.deg)
+        mdts = np.diag(self.archival.mdts[idTime, idLat, idLon].values * u.deg)
+        return (ddmTheta, archiveTheta, mwd, mdww, mdts,archiveSpeed)
