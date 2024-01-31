@@ -1,6 +1,7 @@
 ## General Python
 import numpy as np
 import os
+from tqdm import tqdm
 
 ## Astropy Tools
 from astropy.time import Time
@@ -12,10 +13,15 @@ from astropy.coordinates import EarthLocation
 import matplotlib.animation as animation
 import matplotlib.colors as colors
 import matplotlib.pyplot as plt
+import geopandas
+from shapely.geometry import LineString
+from shapely.ops import split
+from shapely.affinity import translate
 
+## Scintools
 import scintools.ththmod as THTH
 
-from tqdm import tqdm
+
 
 def coords(emitters, speculars, receiver):
     """
@@ -436,7 +442,7 @@ def single_plot(ddms,
                 freq,
                 fitRes,
                 theta,
-                power,fname=None):
+                power,fname=None,archival = None, archivalID = 0):
     nSource=ddms.shape[0]
     xAxis, yAxis, zAxis, psis, des, drs = coords(emitters, speculars, receiver)
     thetaWs = thetaConvert(fitRes[fitRes['best']]['mean']*u.deg, xAxis, yAxis, zAxis).to(u.deg)
@@ -445,9 +451,11 @@ def single_plot(ddms,
     thetaIs = wavesToImages(thetaWs, psis)
     etas = calcCurvatures(thetaIs, psis, des, drs, Vrs, Ves, freq)
 
-    
-    grid = plt.GridSpec(nrows=3, ncols=nSource)
-    plt.figure(figsize=(2*nSource, 8))
+    nRows=3
+    if archival:
+        nRows+=4
+    grid = plt.GridSpec(nrows=nRows, ncols=nSource)
+    plt.figure(figsize=(2*nSource, nRows*2))
     c = ["tab:blue", "tab:gray", "tab:purple", "tab:brown"]
     for i in range(nSource):
         extent = THTH.ext_find(doppler, delay)
@@ -504,7 +512,85 @@ def single_plot(ddms,
         color="red",label=err_string(fitRes[fitRes['worst']]['mean'],fitRes[fitRes['worst']]['err']*fitRes[fitRes['worst']]['chi'],r'$^\circ$')
     )
     plt.legend()
-    # plt.axvline(bestTheta.value)
+    
+    if archival:
+
+        speed = np.sqrt(np.array(archival.u10**2+archival.v10**2))[archivalID][::-1,:]
+        lat = np.array(archival.latitude)[::-1]*u.deg
+        lon = np.array(archival.longitude)*u.deg
+        angle = np.arctan2(np.array(archival.u10),np.array(archival.v10))[archivalID][::-1,:]
+
+        oLoc = EarthLocation(x=receiver[0],y=receiver[1],z=receiver[2])
+        sLoc = EarthLocation(x=speculars.T[0],y=speculars.T[1],z=speculars.T[2])
+        eLoc = EarthLocation(x=emitters.T[0],y=emitters.T[1],z=emitters.T[2])
+
+        cent = np.mod(sLoc.lon.to(u.deg).mean(),360*u.deg)
+
+        lon2 = lon-180*u.deg-cent
+        lon2 = np.mod(lon2+180*u.deg,360*u.deg)-180*u.deg
+        speed2=np.copy(speed)
+        speed2=speed2[:,np.argsort(lon2)]
+        angle2=np.copy(angle)
+        angle2=angle2[:,np.argsort(lon2)]
+        lon2=np.sort(lon2)
+
+        ax1 = plt.subplot(grid[3:5, :])
+        im1=ax1.imshow(np.roll(speed2,720,axis=1),origin='lower',aspect='auto',extent=THTH.ext_find(lon2,lat),
+                cmap='Greys')
+        shifted_world(cent.value).plot(ax=ax1, color="white")
+        ax1.set_xlim((-180,180))
+        ax1.set_ylim((-90,90))
+        for n in range(nSource):
+            ax1.plot(np.mod(sLoc[n].lon-cent+180*u.deg,360*u.deg)-180*u.deg,sLoc[n].lat,'*',c=colors.TABLEAU_COLORS[c[n]])
+            ax1.plot(np.mod(eLoc[n].lon-cent+180*u.deg,360*u.deg)-180*u.deg,eLoc[n].lat,'^',c=colors.TABLEAU_COLORS[c[n]])
+        ax1.plot(np.mod(oLoc.lon-cent+180*u.deg,360*u.deg)-180*u.deg,oLoc.lat,'r.',label='Receiver')
+        ax1.set_title(r'$\rm{Wind~Speed}~\left(\rm{m}~\rm{s}^{-1}\right)$')
+        ax1.set_xticks([])
+        ax1.set_ylabel(r'$\rm{Latitude}~\left(\rm{deg}\right)$')
+        plt.colorbar(im1,ax=ax1)
+        ax1.plot(np.array([]),np.array([]),'k*',label='Specular Point')
+        ax1.plot(np.array([]),np.array([]),'k^',label='CYGNSS Satelite')
+        ax1.legend()
+
+        ax2 = plt.subplot(grid[5:, :])
+        im2=ax2.imshow(np.roll(angle2,720,axis=1),origin='lower',aspect='auto',extent=THTH.ext_find(lon2,lat),
+                cmap='twilight')
+        shifted_world(cent.value).plot(ax=ax2, color="white")
+        ax2.set_xlim((-180,180))
+        ax2.set_ylim((-90,90))
+        for n in range(nSource):
+            ax2.plot(np.mod(sLoc[n].lon-cent+180*u.deg,360*u.deg)-180*u.deg,sLoc[n].lat,'*',c=colors.TABLEAU_COLORS[c[n]])
+            ax2.plot(np.mod(eLoc[n].lon-cent+180*u.deg,360*u.deg)-180*u.deg,eLoc[n].lat,'^',c=colors.TABLEAU_COLORS[c[n]])
+        ax2.plot(np.mod(oLoc.lon-cent+180*u.deg,360*u.deg)-180*u.deg,oLoc.lat,'r.')
+
+        ax2.set_xticklabels(np.mod(ax2.get_xticks()+cent.value+180,360).astype(int)-180)
+        ax2.set_ylabel(r'$\rm{Latitude}~\left(\rm{deg}\right)$')
+        ax2.set_xlabel(r'$\rm{Longitude}~\left(\rm{deg}\right)$')
+        ax2.set_title(r'$\rm{Wind~Direction}~\left(\rm{deg}\right)$')
+        plt.colorbar(im2,ax=ax2)
+
     plt.tight_layout()
     if fname:
         plt.savefig(fname)
+
+
+def shifted_world(shift):
+    countries = geopandas.read_file(geopandas.datasets.get_path("naturalearth_lowres"))
+    shift -= 180
+    movedGeometry = []
+    splittedGeometry = []
+    border = LineString([(shift,90),(shift,-90)])
+    
+    for row in countries["geometry"]:
+        splittedGeometry.append(split(row, border))
+    for element in splittedGeometry:
+        items = list(element)
+        for item in items:
+            minx, miny, maxx, maxy = item.bounds
+            if minx >= shift:
+                movedGeometry.append(translate(item, xoff=-180-shift))
+            else:
+                movedGeometry.append(translate(item, xoff=180-shift))
+    
+    # got `moved_geom` as the moved geometry            
+    return(geopandas.GeoDataFrame({"geometry": movedGeometry}))

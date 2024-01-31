@@ -117,23 +117,42 @@ class DDMI:
             fitRes[names[i]].update({'fits': pars[i]})
         return(fitRes)
     
-    def plot_sample(self,satNum,nSample,nSource,fname=None):
+    def plot_sample(self,satNum,nSample,nSource,fname=None,archival=False):
         fitRes = self._build_results(self.fits[satNum][nSource]['fitRes'][nSample],self.fits[satNum][nSource]['fitPars'][nSample])
-        af.single_plot(self.ddms[satNum][nSource]['ddm'][nSample],
-                self.ddms[satNum][nSource]['sourcePos'][nSample],
-                self.ddms[satNum][nSource]['specularPos'][nSample],
-                self.ddms[satNum][nSource]['observerPos'][nSample],
-                self.ddms[satNum][nSource]['sourceVel'][nSample],
-                self.ddms[satNum][nSource]['observerVel'][nSample],
-                self.ddms[satNum][nSource]['delay'],
-                self.ddms[satNum][nSource]['doppler'],
-                self.ddms[satNum][nSource]['tau0'][nSample],
-                self.ddms[satNum][nSource]['fd0'][nSample],
-                self.freq,
-                fitRes,
-                self.fits[satNum][nSource]['thetas'][nSample],
-                self.fits[satNum][nSource]['powers'][nSample],
-                fname=fname)
+        if archival:
+            time = self.ddms[satNum][nSource]['time'][nSample]
+            archivalID = np.argmin(np.abs(self.ddms[1][4]['time'][0]-Time(np.array(self.archival.time))))
+            af.single_plot(self.ddms[satNum][nSource]['ddm'][nSample],
+                    self.ddms[satNum][nSource]['sourcePos'][nSample],
+                    self.ddms[satNum][nSource]['specularPos'][nSample],
+                    self.ddms[satNum][nSource]['observerPos'][nSample],
+                    self.ddms[satNum][nSource]['sourceVel'][nSample],
+                    self.ddms[satNum][nSource]['observerVel'][nSample],
+                    self.ddms[satNum][nSource]['delay'],
+                    self.ddms[satNum][nSource]['doppler'],
+                    self.ddms[satNum][nSource]['tau0'][nSample],
+                    self.ddms[satNum][nSource]['fd0'][nSample],
+                    self.freq,
+                    fitRes,
+                    self.fits[satNum][nSource]['thetas'][nSample],
+                    self.fits[satNum][nSource]['powers'][nSample],
+                    fname=fname,archival=self.archival,archivalID=archivalID)
+        else:
+            af.single_plot(self.ddms[satNum][nSource]['ddm'][nSample],
+                    self.ddms[satNum][nSource]['sourcePos'][nSample],
+                    self.ddms[satNum][nSource]['specularPos'][nSample],
+                    self.ddms[satNum][nSource]['observerPos'][nSample],
+                    self.ddms[satNum][nSource]['sourceVel'][nSample],
+                    self.ddms[satNum][nSource]['observerVel'][nSample],
+                    self.ddms[satNum][nSource]['delay'],
+                    self.ddms[satNum][nSource]['doppler'],
+                    self.ddms[satNum][nSource]['tau0'][nSample],
+                    self.ddms[satNum][nSource]['fd0'][nSample],
+                    self.freq,
+                    fitRes,
+                    self.fits[satNum][nSource]['thetas'][nSample],
+                    self.fits[satNum][nSource]['powers'][nSample],
+                    fname=fname)
         
     def _calc_UV_thetas(self, nSource, nSample):
         nSampleFull = self.fits[nSource]["sampleNumber"][nSample]
