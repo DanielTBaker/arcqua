@@ -24,126 +24,81 @@ import arcqua.fitting as af
 
 class DDMI:
 
-    def __init__(self,fname,source='CYGNSS'):
-        if source == 'CYGNSS':
-            self.freq = 1.57542 * u.GHz
-            data = xr.open_dataset(fname)
-
-            self.startTime = Time(data.time_coverage_start)
-            self.brcs = np.array(data.brcs)
-            self.time = Time(np.array(data.ddm_timestamp_utc))
-            self.gpsCode = np.array(data.prn_code).astype(int)
-            self.cygNumber = int(data.spacecraft_num)
-
-            ##Get Errors
-            self.errorCodes = np.array(data.quality_flags)
-            self.isError = self.errorCodes > 0
-
-            ##Get Positions and Velocities
-            sourceX = np.array(data.tx_pos_x)
-            sourceY = np.array(data.tx_pos_y)
-            sourceZ = np.array(data.tx_pos_z)
-            sourceVX = np.array(data.tx_vel_x)
-            sourceVY = np.array(data.tx_vel_y)
-            sourceVZ = np.array(data.tx_vel_z)
-            specularX = np.array(data.sp_pos_x)
-            specularY = np.array(data.sp_pos_y)
-            specularZ = np.array(data.sp_pos_z)
-            specularVX = np.array(data.sp_vel_x)
-            specularVY = np.array(data.sp_vel_y)
-            specularVZ = np.array(data.sp_vel_z)
-            observerX = np.array(data.sc_pos_x)
-            observerY = np.array(data.sc_pos_y)
-            observerZ = np.array(data.sc_pos_z)
-            observerVX = np.array(data.sc_vel_x)
-            observerVY = np.array(data.sc_vel_y)
-            observerVZ = np.array(data.sc_vel_z)
-            
-
-            self.sourcePos = np.transpose(np.array([sourceX, sourceY, sourceZ]), (1, 2, 0))*u.m
-            self.specularPos = np.transpose(np.array([specularX, specularY, specularZ]), (1, 2, 0))*u.m
-            self.observerPos = np.array([observerX, observerY, observerZ]).T*u.m
-
-            self.sourceVel = np.transpose(np.array([sourceVX, sourceVY, sourceVZ]), (1, 2, 0))*u.m/u.s
-            self.specularVel = np.transpose(np.array([specularVX, specularVY, specularVZ]), (1, 2, 0))*u.m/u.s
-            self.observerVel = np.array([observerVX, observerVY, observerVZ]).T*u.m/u.s
-
-            ## Delay and Doppler
-            self.nDoppler = data.dims['doppler']
-            self.nDelay = data.dims['delay']
-            self.nDDM = data.dims['ddm']
-            self.chipSize = ((1./1023000.)*u.s).to(u.us)
-            self.delay = np.linspace(-(self.nDelay-1)//2,(self.nDelay-1)//2,self.nDelay)*float(data.delay_resolution)*self.chipSize
-            self.doppler = np.linspace(-(self.nDoppler-1)//2,(self.nDoppler-1)//2,self.nDoppler)*float(data.dopp_resolution)*u.Hz
-            self.tau0 = np.array(data.brcs_ddm_sp_bin_delay_row)*float(data.delay_resolution)*self.chipSize+self.delay[0]
-            self.fd0 = np.array(data.brcs_ddm_sp_bin_dopp_col)*float(data.dopp_resolution)*u.Hz+self.doppler[0]
-
-            timeString = self.startTime.value
-            year=timeString.split('-')[0]
-            month=timeString.split('-')[1]
-            day=timeString.split('-')[2].split('T')[0]
-            self.date=year+month+day
-
-    def repack_data(self,dir='.'):
-        for nSource in np.array([2, 3, 4]):
-            hasCount = np.argwhere(np.sum(self.isError, 1) == (self.nDDM - nSource))[:, 0]
-
-            tempIDs = self.errorCodes[hasCount] == 0
-            tempGPS = np.reshape(self.gpsCode[hasCount][tempIDs], (-1, nSource))
-            tempTime = self.time[hasCount]
-            tempSourcePos = np.reshape(self.sourcePos[hasCount][tempIDs], (-1, nSource, 3))
-            tempSpecularPos = np.reshape(self.specularPos[hasCount][tempIDs], (-1, nSource, 3))
-            tempObserverPos = self.observerPos[hasCount]
-            tempSourceVel = np.reshape(self.sourceVel[hasCount][tempIDs], (-1, nSource, 3))
-            tempSpecularVel = np.reshape(self.specularVel[hasCount][tempIDs], (-1, nSource, 3))
-            tempObserverVel = self.observerVel[hasCount]
-            tempDDMs = np.reshape(self.brcs[hasCount][tempIDs], (-1, nSource, self.nDelay, self.nDoppler))
-            tempTau0 = np.reshape(self.tau0[hasCount][tempIDs],(-1, nSource))
-            tempFd0 = np.reshape(self.fd0[hasCount][tempIDs],(-1, nSource))
-
-            fname = f"{self.date}-cyg0{self.cygNumber}-{nSource}source.npz"
-            np.savez(
-                os.path.join(dir,fname),
-                time=tempTime.mjd,
-                ddm=tempDDMs,
-                delay=self.delay,
-                doppler=self.doppler,
-                tau0=tempTau0,
-                fd0=tempFd0,
-                specularPos=tempSpecularPos,
-                observerPos=tempObserverPos,
-                sourcePos=tempSourcePos,
-                specularVel=tempSpecularVel,
-                observerVel=tempObserverVel,
-                sourceVel=tempSourceVel,
-                gpsCode=tempGPS,
-                sampleNumber=hasCount,
-            )
+    def __init__(self,
+                 date,
+                 fitsDir='.',
+                 ddmiDir='.',
+                 archiveDir = '.',
+                 instrument='cyg',
+                 nSats=8,
+                 nSources=np.array([2,3,4]).astype(int)):
+        self.date=date
+        self.instrument=instrument
+        self.fitsDir=fitsDir
+        self.ddmiDir=ddmiDir
+        self.archiveDir = archiveDir
+        self.nSats=nSats
+        self.nSources=nSources
+        self.freq = 1.57542 * u.GHz
+        self._read_ddms()
+        self._read_fits()
+        self._read_archive()
     
-    def read_fits(self,dir='.'):
+    def _read_ddms(self):
+        self.ddms={}
+        for satNum in range(self.nSats):
+            fnames = [os.path.join(self.ddmiDir,f'{self.date}-{self.instrument}{str(satNum+1).zfill(2)}-{nSource}source.npz') for nSource in self.nSources]
+            exists = np.array([os.path.exists(fname) for fname in fnames])
+            if np.any(exists):
+                self.ddms.update({satNum+1 : {}})
+                for id in range(self.nSources.shape[0]):
+                    if exists[id]:
+                        arch=np.load(fnames[id])
+                        self.ddms[satNum+1].update({self.nSources[id]: {
+                            "time" : Time(arch['time'],format='mjd'),
+                            "ddm" : arch['ddm'],
+                            "delay" : arch['delay']*u.us,
+                            "doppler" : arch['doppler']*u.Hz,
+                            "tau0" : arch['tau0']*u.us,
+                            "fd0" : arch['fd0']*u.Hz,
+                            "specularPos" : arch['specularPos']*u.m,
+                            "observerPos" : arch['observerPos']*u.m,
+                            "sourcePos" : arch['sourcePos']*u.m,
+                            "specularVel" : arch['specularVel']*u.m/u.s,
+                            "observerVel" : arch['observerVel']*u.m/u.s,
+                            "sourceVel" : arch['sourceVel']*u.m/u.s,
+                            "gpsCode" : arch['gpsCode'],
+                            "sampleNumber" : arch['sampleNumber']
+                        }})
+
+
+
+    def _read_fits(self):
         self.fits={}
-        for nSource in np.array([2,3,4]):
-            try:
-                arch=np.load(os.path.join(dir,f'{self.date}-cyg0{self.cygNumber}-{nSource}source_fits_full.npz'))
-                self.fits.update({nSource : {}})
-                powers=arch['powers']
-                asymm=arch['asymm']
-                thetas=arch['thetas']*u.deg
-                fitPars=arch['fitPars']
-                fitRes=arch['fitRes']
-                sampleNumber=arch['sampleNumber']
-                self.fits[nSource].update({'powers' : powers})
-                self.fits[nSource].update({'thetas' : thetas})
-                self.fits[nSource].update({'asymm' : asymm})
-                self.fits[nSource].update({'fitPars' : fitPars})
-                self.fits[nSource].update({'fitRes' : fitRes})
-                self.fits[nSource].update({'sampleNumber' : sampleNumber})
-                self.fits[nSource].update({'best' : fitRes[:,:,1]==fitRes[:,:,1].min(1)[:,np.newaxis]})
-            except:
-                print(f'{nSource} fit does not exist for cyg{self.cygNumber} on {self.date}')
+        for satNum in range(self.nSats):
+            self.fits.update({satNum+1 : {}})
+            for nSource in self.nSources:
+                try:
+                    arch=np.load(os.path.join(self.fitsDir,f'{self.date}-{self.instrument}{str(satNum+1).zfill(2)}-{nSource}source_fits_full.npz'))
+                    self.fits[satNum+1].update({nSource : {}})
+                    powers=arch['powers']
+                    asymm=arch['asymm']
+                    thetas=arch['thetas']*u.deg
+                    fitPars=arch['fitPars']
+                    fitRes=arch['fitRes']
+                    sampleNumber=arch['sampleNumber']
+                    self.fits[satNum+1][nSource].update({'powers' : powers})
+                    self.fits[satNum+1][nSource].update({'thetas' : thetas})
+                    self.fits[satNum+1][nSource].update({'asymm' : asymm})
+                    self.fits[satNum+1][nSource].update({'fitPars' : fitPars})
+                    self.fits[satNum+1][nSource].update({'fitRes' : fitRes})
+                    self.fits[satNum+1][nSource].update({'sampleNumber' : sampleNumber})
+                    self.fits[satNum+1][nSource].update({'best' : fitRes[:,:,1]==fitRes[:,:,1].min(1)[:,np.newaxis]})
+                except:
+                    print(f'{nSource} fit does not exist for cyg{self.instrument}{str(satNum+1).zfill(2)} on {self.date}')
     
-    def read_archive(self,dir='.'):
-        self.archival = xr.load_dataset(os.path.join(dir,f'{self.date}.nc'))
+    def _read_archive(self):
+        self.archival = xr.load_dataset(os.path.join(self.archiveDir,f'{self.date}.nc'))
 
     def _build_results(self,results,pars):
         names=['left','right']
@@ -162,22 +117,22 @@ class DDMI:
             fitRes[names[i]].update({'fits': pars[i]})
         return(fitRes)
     
-    def plot_sample(self,nSample,nSource,fname=None):
-        nSampleFull = self.fits[nSource]['sampleNumber'][nSample]
-        goodDDM = np.invert(self.isError[nSampleFull])
-        fitRes = self._build_results(self.fits[nSource]['fitRes'][nSample],self.fits[nSource]['fitPars'][nSample])
-        af.single_plot(self.brcs[nSampleFull,goodDDM],
-                self.sourcePos[nSampleFull,goodDDM],
-                self.specularPos[nSampleFull,goodDDM],
-                self.observerPos[nSampleFull],
-                self.sourceVel[nSampleFull,goodDDM],
-                self.observerVel[nSampleFull],
-                self.delay,self.doppler,
-                self.tau0[nSampleFull,goodDDM],self.fd0[nSampleFull,goodDDM],
+    def plot_sample(self,satNum,nSample,nSource,fname=None):
+        fitRes = self._build_results(self.fits[satNum][nSource]['fitRes'][nSample],self.fits[satNum][nSource]['fitPars'][nSample])
+        af.single_plot(self.ddms[satNum][nSource]['ddm'][nSample],
+                self.ddms[satNum][nSource]['sourcePos'][nSample],
+                self.ddms[satNum][nSource]['specularPos'][nSample],
+                self.ddms[satNum][nSource]['observerPos'][nSample],
+                self.ddms[satNum][nSource]['sourceVel'][nSample],
+                self.ddms[satNum][nSource]['observerVel'][nSample],
+                self.ddms[satNum][nSource]['delay'],
+                self.ddms[satNum][nSource]['doppler'],
+                self.ddms[satNum][nSource]['tau0'][nSample],
+                self.ddms[satNum][nSource]['fd0'][nSample],
                 self.freq,
                 fitRes,
-                self.fits[nSource]['thetas'][nSample],
-                self.fits[nSource]['powers'][nSample],
+                self.fits[satNum][nSource]['thetas'][nSample],
+                self.fits[satNum][nSource]['powers'][nSample],
                 fname=fname)
         
     def _calc_UV_thetas(self, nSource, nSample):
@@ -239,3 +194,4 @@ class DDMI:
         mdww = np.diag(self.archival.mdww[idTime, idLat, idLon].values * u.deg)
         mdts = np.diag(self.archival.mdts[idTime, idLat, idLon].values * u.deg)
         return (ddmTheta, archiveTheta, mwd, mdww, mdts,archiveSpeed)
+    
