@@ -17,7 +17,7 @@ import matplotlib.animation as animation
 import matplotlib.colors as colors
 import matplotlib.pyplot as plt
 
-from tqdm import tqdm
+from tqdm.notebook import tqdm
 
 import arcqua.fitting as af
 
@@ -29,6 +29,8 @@ class DDMI:
                  fitsDir='.',
                  ddmiDir='.',
                  archiveDir = '.',
+                 uvDir = '.',
+                 mapDir = '.',
                  instrument='cyg',
                  nSats=8,
                  nSources=np.array([2,3,4]).astype(int)):
@@ -40,9 +42,26 @@ class DDMI:
         self.nSats=nSats
         self.nSources=nSources
         self.freq = 1.57542 * u.GHz
+        self.uvDir=uvDir
+        self.mapDir = mapDir
+        print('Load DDMs')
         self._read_ddms()
+        print('Load Fits')
         self._read_fits()
+        print('Load Archival')
         self._read_archive()
+        try:
+            self._load_UV()
+        except:
+            print('Calculate UVs')
+            self._calc_UV()
+            self._save_UV()
+        try:
+            self._load_uv_map()
+        except:
+            print('Calculate UV Map')
+            self._calc_uv_map()
+            self._save_uv_map()
     
     def _read_ddms(self):
         self.ddms={}
@@ -153,64 +172,101 @@ class DDMI:
                     self.fits[satNum][nSource]['thetas'][nSample],
                     self.fits[satNum][nSource]['powers'][nSample],
                     fname=fname)
-        
-    def _calc_UV_thetas(self, nSource, nSample):
-        nSampleFull = self.fits[nSource]["sampleNumber"][nSample]
-        goodDDM = np.invert(self.isError[nSampleFull])
-        fitRes = self._build_results(
-            self.fits[nSource]["fitRes"][nSample], self.fits[nSource]["fitPars"][nSample]
-        )
-        speculars = self.specularPos[nSampleFull, goodDDM]
-        emitters = self.sourcePos[nSampleFull, goodDDM]
-        receiver = self.observerPos[nSampleFull]
-        eLoc = EarthLocation(x=speculars[:, 0], y=speculars[:, 1], z=speculars[:, 2])
-        lon = eLoc.lon
-        lat = eLoc.lat
-        time = self.time[nSampleFull]
-        idLon = np.argmin(
-            np.abs(np.array(self.archival.longitude) * u.deg - lon[:, np.newaxis]), 1
-        )
-        idLat = np.argmin(
-            np.abs(np.array(self.archival.latitude) * u.deg - lat[:, np.newaxis]), 1
-        )
-        idTime = np.argmin(np.abs(Time(np.array(self.archival.time)) - time))
 
-        ddmUV = (
-            np.array(
-                [
-                    af.toUV(
-                        emitters,
-                        speculars,
-                        receiver,
-                        fitRes[fitRes["best"]]["mean"] * u.deg,
-                        i,
+    def _save_UV(self):
+          for satID in tqdm(range(self.nSats),position=0):
+            satNum=satID+1
+            for nSource in tqdm(self.nSources,position=1,leave=False):
+                np.savez(os.path.join(self.uvDir,
+                                      f'{self.date}-{self.instrument}{str(satNum+1).zfill(2)}-{nSource}source_uv.npz'),
+                        uv=self.recoverUV[satNum][nSource])
+   
+    def _load_UV(self):
+        self.recoverUV = {}
+        for satID in tqdm(range(self.nSats),position=0):
+            satNum=satID+1
+            self.recoverUV.update({satNum : {}})
+            for nSource in tqdm(self.nSources,position=1,leave=False):
+                arch=np.load(os.path.join(self.uvDir,
+                                      f'{self.date}-{self.instrument}{str(satNum+1).zfill(2)}-{nSource}source_uv.npz'))
+                self.recoverUV[satNum].update({nSource : arch['uv']})
+    
+    def _calc_UV(self):
+        self.recoverUV = {}
+        for satID in tqdm(range(self.nSats),position=0):
+            satNum=satID+1
+            self.recoverUV.update({satNum : {}})
+            for nSource in tqdm(self.nSources,position=1,leave=False):
+                uv = np.zeros((self.fits[satNum][nSource]["fitRes"].shape[0],nSource,2))
+                for nSample in tqdm(range(uv.shape[0]),position=2,leave=False):
+                    fitRes = self._build_results(
+                        self.fits[satNum][nSource]["fitRes"][nSample],
+                        self.fits[satNum][nSource]["fitPars"][nSample],
                     )
-                    for i in range(nSource)
-                ]
-            )
-            * u.m
-            / u.s
-        )
-        ddmTheta = np.mod(
-            np.arctan2(ddmUV[:, 0], ddmUV[:, 1]).to(u.deg) - 180 * u.deg, 360 * u.deg
-        )
-        archiveUV = (
-            np.array(
-                [
-                    self.archival.u10[idTime, idLat, idLon],
-                    self.archival.v10[idTime, idLat, idLon],
-                ]
-            )
-            * u.m
-            / u.s
-        )
-        archiveTheta = np.diag(
-            np.mod(np.arctan2(*archiveUV).to(u.deg) - 180 * u.deg, 360 * u.deg)
-        )
-        archiveSpeed = np.diag(np.sqrt(np.sum(archiveUV**2,0)))
+                    theta = fitRes[fitRes["best"]]["mean"] * u.deg
+                    for sourceNum in range(nSource):
+                        uv[nSample,sourceNum,:] = af.toUV(
+                            self.ddms[satNum][nSource]["sourcePos"][nSample],
+                            self.ddms[satNum][nSource]["specularPos"][nSample],
+                            self.ddms[satNum][nSource]["observerPos"][nSample],
+                            theta,
+                            id=sourceNum,
+                        )
+                self.recoverUV[satNum].update({nSource : uv})
 
-        mwd = np.diag(self.archival.mwd[idTime, idLat, idLon].values) * u.deg
-        mdww = np.diag(self.archival.mdww[idTime, idLat, idLon].values * u.deg)
-        mdts = np.diag(self.archival.mdts[idTime, idLat, idLon].values * u.deg)
-        return (ddmTheta, archiveTheta, mwd, mdww, mdts,archiveSpeed)
+    def _calc_uv_map(self):
+        lats = np.array(self.archival.latitude) * u.deg
+        lons = np.linspace(0,360,self.archival.longitude.shape[0]+1)*u.deg
+        us = np.zeros((24,lats.shape[0],lons.shape[0]))
+        vs = np.copy(us)
+        counts = np.copy(us)
+
+        for satID in tqdm(range(8), position=0):
+            satNum = satID + 1
+            for nSource in [2, 3, 4]:
+                for nSample in tqdm(
+                    range(self.fits[satNum][nSource]["fitRes"].shape[0]),
+                    position=1,
+                    leave=False,
+                ):
+                    for i in range(nSource):
+                        pos = self.ddms[satNum][nSource]["specularPos"][nSample][i]
+                        loc = EarthLocation(x=pos[0], y=pos[1], z=pos[2])
+                        lat = loc.lat
+                        lon = loc.lon
+                        time = self.ddms[satNum][nSource]["time"][nSample]
+                        timeID = np.argmin(np.abs(time - Time(np.array(self.archival.time))))
+                        lonID = np.argmin(np.abs(np.mod(lon, 360 * u.deg) - lons))
+                        latID = np.argmin(np.abs(lat - lats))
+                        us[timeID, latID, lonID] += self.recoverUV[satNum][nSource][nSample,i,0]
+                        vs[timeID, latID, lonID] += self.recoverUV[satNum][nSource][nSample,i,1]
+                        counts[timeID, latID, lonID] += 1
+        us[:,:,0]+=us[:,:,-1]
+        vs[:,:,0]+=vs[:,:,-1]
+        counts[:,:,0]+=counts[:,:,-1]
+        us=us[:,:,:-1]
+        vs=vs[:,:,:-1]
+        counts=counts[:,:,:-1]
+        lons=lons[:-1]
+        self.uvMap = {"u" : us/counts,
+                      "v" : vs/counts,
+                      "counts" : counts,
+                      "lats" : lats,
+                      "lons" : lons}
+    
+    def _save_uv_map(self):
+        np.savez(os.path.join(self.mapDir,f'{self.date}-{self.instrument}-map.npz'),
+                 u=self.uvMap['u'],
+                 v=self.uvMap['v'],
+                 counts=self.uvMap['counts'],
+                 lats=self.uvMap['lats'],
+                 lons=self.uvMap['lons'])
+
+    def _load_uv_map(self):
+        arch=np.load(os.path.join(self.mapDir,f'{self.date}-{self.instrument}-map.npz'))
+        self.uvMap = {"u" : arch['u'],
+                      "v" : arch['v'],
+                      "counts" : arch['counts'],
+                      "lats" : arch["lats"],
+                      "lons" : arch["lons"]}
     
