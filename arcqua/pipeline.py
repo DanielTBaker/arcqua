@@ -2,6 +2,7 @@ import cdsapi
 import os
 from astropy.time import Time
 import astropy.units as u
+import numpy as np
 ## Data Loaders
 import xarray as xr
 
