@@ -204,6 +204,48 @@ class DDMI:
                         self.fits[satNum][nSource]["fitPars"][nSample],
                     )
                     theta = fitRes[fitRes["best"]]["mean"] * u.deg
+
+                    ## Asymmetry Stuff
+                    dirs = (self.ddms[satNum][nSource]["specularPos"][nSample]- self.ddms[satNum][nSource]["observerPos"][nSample][np.newaxis, :])
+                    vel = self.ddms[satNum][nSource]["observerVel"][nSample]
+                    dirSigns = (dirs * vel).sum(1)
+                    thetaID = np.argmin(np.abs(self.fits[satNum][nSource]["thetas"][nSample] - theta))
+                    asymm=self.fits[satNum][nSource]["asymm"][nSample, :, thetaID]*dirSigns
+
+                    xAxis, yAxis, zAxis, psis, des, drs = af.coords(
+                        self.ddms[satNum][nSource]["sourcePos"][nSample],
+                        self.ddms[satNum][nSource]["specularPos"][nSample],
+                        self.ddms[satNum][nSource]["observerPos"][nSample],
+                    )
+                    thetas = af.thetaConvert(theta, xAxis, yAxis, zAxis)
+                    thetaIs = af.wavesToImages(thetas, psis)
+                    emitterVels2 = af.convertToSpecular(
+                        self.ddms[satNum][nSource]["sourceVel"][nSample], xAxis, yAxis, zAxis
+                    )
+                    receiverVel2 = af.convertToSpecular(
+                        self.ddms[satNum][nSource]["observerVel"][nSample], xAxis, yAxis, zAxis
+                    )
+
+                    sHats = np.array(
+                        [np.cos(thetaIs).value, np.sin(thetaIs).value, np.zeros(nSource)]
+                    ).T
+                    rHats = np.array(
+                        [np.cos(psis).value, np.zeros(nSource), np.sin(psis).value]
+                    ).T
+                    eHats = np.array(
+                        [-np.cos(psis).value, np.zeros(nSource), np.sin(psis).value]
+                    ).T
+                    cosProd = np.cos(psis) * np.cos(thetaIs)
+                    vels = np.sum(
+                            receiverVel2 * (sHats - rHats * cosProd[:, np.newaxis])
+                            + emitterVels2
+                            * (sHats + eHats * cosProd[:, np.newaxis])
+                            * (drs / des)[:, np.newaxis],
+                            1,
+                        ).value
+                    
+                    dirVel = np.sign(np.mean(vels*asymm))
+
                     for sourceNum in range(nSource):
                         uv[nSample,sourceNum,:] = af.toUV(
                             self.ddms[satNum][nSource]["sourcePos"][nSample],
@@ -211,7 +253,7 @@ class DDMI:
                             self.ddms[satNum][nSource]["observerPos"][nSample],
                             theta,
                             id=sourceNum,
-                        )
+                        )*dirVel
                 self.recoverUV[satNum].update({nSource : uv})
 
     def _calc_uv_map(self):
