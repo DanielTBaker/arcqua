@@ -52,7 +52,7 @@ def full_download(day,month,year,outputDir='.'):
     download_CYGNNS_data(day,month,year,outputDir=cygnssDir)
     download_archival_velocities(day,month,year,outputDir=archivalDir)
 
-def repack_data(self,date,satNum=1,sourceDir='.',outputDir='.',source='CYGNSS'):
+def repack_data(date,satNum=1,sourceDir='.',outputDir='.',source='CYGNSS'):
     if source == 'CYGNSS':
         fname=f"cyg06{satNum}ddmi.s{date}-000000-e{date}-235959.l1.power-brcs.a31.d32.nc"
         data = xr.open_dataset(os.path.join(sourceDir,fname))
@@ -129,7 +129,7 @@ def repack_data(self,date,satNum=1,sourceDir='.',outputDir='.',source='CYGNSS'):
 
         fname = f"{date}-cyg0{cygNumber}-{nSource}source.npz"
         np.savez(
-            os.path.join(dir,fname),
+            os.path.join(outputDir,fname),
             time=tempTime.mjd,
             ddm=tempDDMs,
             delay=delay,
