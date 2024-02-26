@@ -2,6 +2,8 @@ import cdsapi
 import os
 from astropy.time import Time
 import astropy.units as u
+## Data Loaders
+import xarray as xr
 
 def download_archival_velocities(day,month,year,outputDir='.'):
     c = cdsapi.Client()
