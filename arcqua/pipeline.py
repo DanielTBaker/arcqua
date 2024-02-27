@@ -57,7 +57,8 @@ def full_download(day,month,year,outputDir='.'):
 
 def repack_data(date,satNum=1,sourceDir='.',outputDir='.',source='CYGNSS'):
     if source == 'CYGNSS':
-        fname=f"cyg0{satNum}.ddmi.s{date}-000000-e{date}-235959.l1.power-brcs.a31.d32.nc"
+
+        fname=[f for f in os.listdir(sourceDir) if f.count(f'cyg0{satNum}')>0 and f.count(f'{date}')>0 and f[-1]=='c'][0]
         data = xr.open_dataset(os.path.join(sourceDir,fname))
 
         startTime = Time(data.time_coverage_start)
