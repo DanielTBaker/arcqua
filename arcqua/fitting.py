@@ -92,12 +92,12 @@ def thetaConvert(theta, xAxis, yAxis, zAxis):
     thetas = np.arctan2(
         np.sum(vecs * yAxis, 1),
         np.sum(vecs * xAxis, 1),
-    )
+    ) << u.rad
     while thetas.min() < -180 * u.deg:
         thetas[thetas < -180 * u.deg] += 360 * u.deg
     while thetas.max() > 180 * u.deg:
         thetas[thetas > 180 * u.deg] -= 360 * u.deg
-    return thetas
+    return thetas.to(u.deg)
 
 def toUV(emitters, speculars, receiver, theta, id=0):
     xAxis, yAxis, zAxis, psis, des, drs = coords(emitters, speculars, receiver)
