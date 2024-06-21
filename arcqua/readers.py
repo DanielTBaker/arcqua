@@ -638,7 +638,7 @@ class TRITON():
         self.version = version
         self.obsName = f'{int(groundTime):06}_{time}'
 
-    def load_data(self, dataDir, spDir, time, mode='raw', streamDir = '.') -> None:
+    def load_data(self, dataDir, spDir, mode='raw', streamDir = '.') -> None:
         assert mode in ['raw', 'power']
         fileName : str = os.path.join(dataDir,f'TRITON_{self.obsName}_CorDDM_v{self.version}_nc')
 
@@ -689,7 +689,7 @@ class TRITON():
 
         metaName : str = os.path.join(spDir,f'TRITON_{self.obsName}_metadata_v{self.version}_nc')
         meta = xr.load_dataset(metaName)
-        spDelay = np.array(meta['SP_CodePhase_shift'][flags == 0])*self.scale
+        spDelay = np.array(meta['SP_CodePhase_shift'])[flags == 0]*self.scale
         spDoppler = np.array(meta['SP_DopplerFrequency_shift'])[flags == 0]*u.Hz
 
         delayRes : u.Quantity = data.attrs['codephase resolution (chip)']*self.scale
