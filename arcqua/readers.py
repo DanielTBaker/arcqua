@@ -637,6 +637,7 @@ class TRITON():
         self.scale : u.Quantity = 1.0 * u.s / (65536.0 * 16.0)
         self.version = version
         self.obsName = f'{int(groundTime):06}_{time}'
+        self.streams = []
 
     def load_data(self, dataDir, spDir, mode='raw', streamDir = '.') -> None:
         assert mode in ['raw', 'power']
