@@ -38,11 +38,11 @@ def coords(emitters, speculars, receiver):
     """
     eVec = emitters - speculars
     eHat = eVec / np.sqrt(np.sum(eVec**2, 1))[:,np.newaxis]
-    rVec = receiver[np.newaxis,:] - speculars
+    rVec = receiver - speculars
     rHat = rVec / np.sqrt(np.sum(rVec**2, 1))[:,np.newaxis]
     zAxis = (eHat + rHat) / 2
     zAxis /= np.sqrt(np.sum(zAxis**2, 1))[:,np.newaxis]
-    xAxis = receiver[np.newaxis, :] - emitters
+    xAxis = receiver - emitters
     xAxis -= np.sum(xAxis * zAxis, 1)[:,np.newaxis] * zAxis
     xAxis /= np.sqrt(np.sum(xAxis**2, 1))[:,np.newaxis]
     yAxis = np.cross(xAxis,zAxis)
@@ -50,6 +50,7 @@ def coords(emitters, speculars, receiver):
     des = np.sqrt(np.sum(eVec**2, 1))
     drs = np.sqrt(np.sum(rVec**2, 1))
     return (xAxis, yAxis, zAxis, psis, des, drs)
+
 
 def convertToSpecular(vecs, xAxis, yAxis, zAxis):
     unitless = (vecs * u.s).value
