@@ -26,7 +26,7 @@ try:
         from tqdm import tqdm
 except:
     from tqdm import tqdm
-    
+
 import arcqua.fitting as af
 
 import scintools.ththmod as thth
@@ -440,7 +440,8 @@ class DDMStream:
 
     def fit_curvatures(self, fw = .1,
                        etaMin = 7e-13*u.s**3, etaMax = 1.2e-12*u.s**3,
-                       nEtas = 100, edges = np.linspace(-2500, 2500, 256) * u.Hz, mode='square',progress = -np.inf):
+                       nEtas = 100, edges = np.linspace(-2500, 2500, 256) * u.Hz,
+                       mode='square',progress = -np.inf, pool = None):
         self.etas = np.zeros(self.nSamples)*u.s**3
         self.etaErrors = np.zeros(self.nSamples)*u.s**3
         if progress <0:
@@ -449,35 +450,26 @@ class DDMStream:
             it = tqdm(range(self.nSamples),position=progress,leave=False)
         for id in it:
             etaSearch = np.linspace(etaMin << u.s**3,etaMax << u.s**3,nEtas)
-            self.etas[id], self.etaErrors[id] = self.single_fit(id,etaSearch,edges,fw,mode=mode)
+            self.etas[id], self.etaErrors[id] = self.single_fit(id,etaSearch,edges,fw,mode=mode,progress=progress+1,pool=pool)
             
 
-    def single_fit(self,id,etas,edges,fw=.1,plot=False,mode : str = 'square',progress = -np.inf):
+    def single_fit(self,id,etas,edges,fw=.1,plot=False,mode : str = 'square',progress = -np.inf, pool = None):
         eigs = np.zeros(etas.shape[0])
-        if progress <0:
+        if pool:
             it = range(eigs.shape[0])
-        else:
-            it = tqdm(range(eigs.shape[0]),position=progress,leave=False)
-        for i in it:
-            ththMatrix = thth.thth_map(
-                self.ddms[id],
-                (self.delay-self.specularDelay[id]).to(u.us),
-                (self.doppler-self.specularDoppler[id]).to(u.mHz),
-                etas[i],
-                edges.to(u.mHz),
-                hermetian=False,
-            ).real
-            U,S,W=np.linalg.svd(ththMatrix)
-            if 'square' in mode.lower():
-                S=S**2
-            if 'sub' in mode.lower():
-                S-=np.median(S)
-            if 'norm' in mode.lower():
-                eigs[i] = S[0]/S[1]
-            elif 'sum' in mode.lower():
-                eigs[i] = np.sqrt(S[0]/np.sum(S))
+            args = []
+            for i in it:
+                args.append((etas[i],edges,mode))
+            res = pool.map(self.find_evals, pars)
+            for i in it:
+                eigs[i]=res[i]
+        else
+            if progress <0:
+                it = range(eigs.shape[0])
             else:
-                eigs[i]=S[0]
+                it = tqdm(range(eigs.shape[0]),position=progress,leave=False)
+            for i in it:
+                eigs[i]=find_evals(etas[i],edges,mode)
         etas = etas[np.isfinite(eigs)]
         eigs = eigs[np.isfinite(eigs)]
         try:
@@ -524,11 +516,31 @@ class DDMStream:
             return(etaFit,etaSig)
         except:
             return(np.nan,np.nan)
-        
 
-    def fit_thetas(self, thetas = np.linspace(-90,90,361)[:-1]*u.deg):
+    def find_evals(self,eta,edges,mode : str = 'square') 
+        ththMatrix = thth.thth_map(
+                self.ddms[id],
+                (self.delay-self.specularDelay[id]).to(u.us),
+                (self.doppler-self.specularDoppler[id]).to(u.mHz),
+                etas,
+                edges.to(u.mHz),
+                hermetian=False,
+            ).real
+            U,S,W=np.linalg.svd(ththMatrix)
+            if 'square' in mode.lower():
+                S=S**2
+            if 'sub' in mode.lower():
+                S-=np.median(S)
+            if 'norm' in mode.lower():
+                eig = S[0]/S[1]
+            elif 'sum' in mode.lower():
+                eig = np.sqrt(S[0]/np.sum(S))
+            else:
+                eig=S[0]
+            return(eig)
+    def fit_thetas(self, thetas = np.linspace(-90,90,361)[:-1]*u.deg, progress = -np.inf, pool = None):
         if not hasattr(self,'etas'):
-            self.fit_curvatures()
+            self.fit_curvatures(progress = progress, pool = pool)
         xAxis, yAxis, zAxis, psis, des, drs = af.coords(self.emPos,
                                                 self.specPos,
                                                 self.obsPos)
@@ -540,7 +552,11 @@ class DDMStream:
 
         self.thetas = thetas
         self.chiArr = np.zeros((self.thetas.shape[0],self.nSamples))
-        for i,theta in enumerate(self.thetas):
+        if progress <0:
+            it = self.thetas
+        else:
+            it = tqdm(self.thetas,position=progress,leave=False)
+        for i,theta in enumerate(it):
 
             offsetLoc = EarthLocation(lat = specLoc.lat+1e-2*np.sin(theta)*u.deg,
                                     lon = specLoc.lon+1e-2*np.cos(theta)*u.deg)
