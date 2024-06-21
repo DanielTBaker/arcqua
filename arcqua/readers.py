@@ -689,8 +689,8 @@ class TRITON():
 
         metaName : str = os.path.join(spDir,f'TRITON_{self.obsName}_metadata_v{self.version}_nc')
         meta = xr.load_dataset(metaName)
-        spDelay = meta['SP_CodePhase_shift'][flags == 0]*self.scale
-        spDoppler = meta['SP_DopplerFrequency_shift'][flags == 0]*u.Hz
+        spDelay = np.array(meta['SP_CodePhase_shift'][flags == 0])*self.scale
+        spDoppler = np.array(meta['SP_DopplerFrequency_shift'])[flags == 0]*u.Hz
 
         delayRes : u.Quantity = data.attrs['codephase resolution (chip)']*self.scale
         dopplerRes : u.Quantity = data.attrs['Doppler resolution (Hz)']*u.Hz
