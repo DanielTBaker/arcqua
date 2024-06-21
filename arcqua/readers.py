@@ -632,18 +632,16 @@ class DDMStream:
         
 
 class TRITON():
-    def __init__(self,year,day) -> None:
+    def __init__(self,groundTime,time,version) -> None:
         self.freq : u.Quantity = 1.57542*u.GHz
         self.scale : u.Quantity = 1.0 * u.s / (65536.0 * 16.0)
-        self.year : int = year
-        self.day : int = day
-        self.prefix : str = str(year)+'_'+str(day).zfill(3)
-        self.streams : list[DDMStream] = list()
-        pass
+        self.version = version
+        self.obsName = f'{int(groundTime):06}_{time}'
 
     def load_data(self, dataDir, spDir, time, mode='raw', streamDir = '.') -> None:
         assert mode in ['raw', 'power']
-        fileName : str = os.path.join(dataDir,f'{self.prefix}_{time}_TRITON_CorDDM.nc')
+        fileName : str = os.path.join(dataDir,f'TRITON_{self.obsName}_CorDDM_v{self.version}_nc')
+
         data = xr.load_dataset(fileName)
         if mode =='raw':
             ddms = np.array(data.rawDDM)
@@ -688,12 +686,11 @@ class TRITON():
                                 np.array(data.GPSVelY)[flags==0],
                                 np.array(data.GPSVelZ)[flags==0]]).T*u.m/u.s
 
-        spFile = np.loadtxt(os.path.join(spDir,f"{self.prefix}_{time}_TRITON_roughness_windspeed.nc.txt"),skiprows=1)
 
-        spChannelNumber = spFile[:,0]
-        spSampleNumber = spFile[:,1]
-        spDelay = spFile[:,6]*self.scale
-        spDoppler = spFile[:,7]*u.Hz
+        metaName : str = os.path.join(spDir,f'TRITON_{self.obsName}_metaData_v{self.version}_nc')
+        meta = xr.load_dataset(metaName)
+        spDelay = meta['SP_CodePhase_shift'][flags == 0]*self.scale
+        spDoppler = meta['SP_DopplerFrequency_shift'][flags == 0]*u.Hz
 
         delayRes : u.Quantity = data.attrs['codephase resolution (chip)']*self.scale
         dopplerRes : u.Quantity = data.attrs['Doppler resolution (Hz)']*u.Hz
@@ -703,23 +700,19 @@ class TRITON():
         doppler -= doppler[33] 
 
         for usePrn in np.unique(prn):
-            spID,ddmID = self._select_indices(usePrn,prn,
-                                              spChannelNumber,spSampleNumber,
-                                              sampleNumber,channelNumber)
-            if len(spID)>0:
-                filename = os.path.join(streamDir,f'{self.prefix}_{time}_{usePrn}')
-                if os.path.exists(f'{filename}.pkl'):
-                    self.streams.append(DDMStream.from_pickle(filename))
-                    print(f'loaded {filename}')
-                else:
-                    newStream = DDMStream(self.freq,usePrn, ddms[ddmID], times[ddmID],
-                                                delay, doppler,
-                                                spDelay[spID],spDoppler[spID],
-                                                observerPos[ddmID],specularPos[ddmID],sourcePos[ddmID],
-                                                observerVel[ddmID],sourceVel[ddmID]
-                                                )
-                    newStream.save(filename)
-                    self.streams.append(newStream)
+            filename = os.path.join(streamDir,f'{self.prefix}_{time}_{usePrn}')
+            if os.path.exists(f'{filename}.pkl'):
+                self.streams.append(DDMStream.from_pickle(filename))
+                print(f'loaded {filename}')
+            else:
+                newStream = DDMStream(self.freq,usePrn, ddms[prn == usePrn], times[prn == usePrn],
+                                            delay, doppler,
+                                            spDelay[prn == usePrn],spDoppler[prn == usePrn],
+                                            observerPos[prn == usePrn],specularPos[prn == usePrn],sourcePos[prn == usePrn],
+                                            observerVel[prn == usePrn],sourceVel[prn == usePrn]
+                                            )
+                newStream.save(filename)
+                self.streams.append(newStream)
                     
 
     def _select_indices(self, usePrn, prn,

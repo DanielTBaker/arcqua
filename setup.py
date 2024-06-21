@@ -10,7 +10,7 @@ from setuptools import setup
 
 setup(
     name='arcqua',
-    version='0.3',
+    version='0.5',
     description='Tools for measuring ocean wave directions from CYGNSS and TRITON data',
     long_description="See: `github.com/DanielTBaker/arcqua \
                       <https://github.com/DanielTBaker/arcqua>`_.",
