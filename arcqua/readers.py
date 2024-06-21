@@ -687,7 +687,7 @@ class TRITON():
                                 np.array(data.GPSVelZ)[flags==0]]).T*u.m/u.s
 
 
-        metaName : str = os.path.join(spDir,f'TRITON_{self.obsName}_metaData_v{self.version}_nc')
+        metaName : str = os.path.join(spDir,f'TRITON_{self.obsName}_metadata_v{self.version}_nc')
         meta = xr.load_dataset(metaName)
         spDelay = meta['SP_CodePhase_shift'][flags == 0]*self.scale
         spDoppler = meta['SP_DopplerFrequency_shift'][flags == 0]*u.Hz
