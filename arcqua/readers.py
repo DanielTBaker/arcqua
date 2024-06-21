@@ -522,7 +522,7 @@ class DDMStream:
                 self.ddms[id],
                 (self.delay-self.specularDelay[id]).to(u.us),
                 (self.doppler-self.specularDoppler[id]).to(u.mHz),
-                etas,
+                eta,
                 edges.to(u.mHz),
                 hermetian=False,
             ).real
