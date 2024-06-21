@@ -463,7 +463,7 @@ class DDMStream:
             res = pool.map(self.find_evals, pars)
             for i in it:
                 eigs[i]=res[i]
-        else
+        else:
             if progress <0:
                 it = range(eigs.shape[0])
             else:
@@ -517,7 +517,7 @@ class DDMStream:
         except:
             return(np.nan,np.nan)
 
-    def find_evals(self,eta,edges,mode : str = 'square') 
+    def find_evals(self,eta,edges,mode : str = 'square'):
         ththMatrix = thth.thth_map(
                 self.ddms[id],
                 (self.delay-self.specularDelay[id]).to(u.us),
@@ -526,18 +526,18 @@ class DDMStream:
                 edges.to(u.mHz),
                 hermetian=False,
             ).real
-            U,S,W=np.linalg.svd(ththMatrix)
-            if 'square' in mode.lower():
-                S=S**2
-            if 'sub' in mode.lower():
-                S-=np.median(S)
-            if 'norm' in mode.lower():
-                eig = S[0]/S[1]
-            elif 'sum' in mode.lower():
-                eig = np.sqrt(S[0]/np.sum(S))
-            else:
-                eig=S[0]
-            return(eig)
+        U,S,W=np.linalg.svd(ththMatrix)
+        if 'square' in mode.lower():
+            S=S**2
+        if 'sub' in mode.lower():
+            S-=np.median(S)
+        if 'norm' in mode.lower():
+            eig = S[0]/S[1]
+        elif 'sum' in mode.lower():
+            eig = np.sqrt(S[0]/np.sum(S))
+        else:
+            eig=S[0]
+        return(eig)
     def fit_thetas(self, thetas = np.linspace(-90,90,361)[:-1]*u.deg, progress = -np.inf, pool = None):
         if not hasattr(self,'etas'):
             self.fit_curvatures(progress = progress, pool = pool)
