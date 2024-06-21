@@ -469,7 +469,7 @@ class DDMStream:
             else:
                 it = tqdm(range(eigs.shape[0]),position=progress,leave=False)
             for i in it:
-                eigs[i]=find_evals(etas[i],edges,mode)
+                eigs[i]=self.find_evals(etas[i],edges,mode)
         etas = etas[np.isfinite(eigs)]
         eigs = eigs[np.isfinite(eigs)]
         try:
