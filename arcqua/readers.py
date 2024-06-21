@@ -459,7 +459,7 @@ class DDMStream:
             it = range(eigs.shape[0])
             args = []
             for i in it:
-                args.append((etas[i],edges,mode))
+                args.append((id,etas[i],edges,mode))
             res = pool.map(self.find_evals, pars)
             for i in it:
                 eigs[i]=res[i]
@@ -469,7 +469,7 @@ class DDMStream:
             else:
                 it = tqdm(range(eigs.shape[0]),position=progress,leave=False)
             for i in it:
-                eigs[i]=self.find_evals(etas[i],edges,mode)
+                eigs[i]=self.find_evals(id,etas[i],edges,mode)
         etas = etas[np.isfinite(eigs)]
         eigs = eigs[np.isfinite(eigs)]
         try:
@@ -517,7 +517,7 @@ class DDMStream:
         except:
             return(np.nan,np.nan)
 
-    def find_evals(self,eta,edges,mode : str = 'square'):
+    def find_evals(self,id,eta,edges,mode : str = 'square'):
         ththMatrix = thth.thth_map(
                 self.ddms[id],
                 (self.delay-self.specularDelay[id]).to(u.us),
