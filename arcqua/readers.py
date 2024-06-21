@@ -700,7 +700,7 @@ class TRITON():
         doppler -= doppler[33] 
 
         for usePrn in np.unique(prn):
-            filename = os.path.join(streamDir,f'{self.prefix}_{time}_{usePrn}')
+            filename = os.path.join(streamDir,f'{self.obsName}_{usePrn}_v{self.version}')
             if os.path.exists(f'{filename}.pkl'):
                 self.streams.append(DDMStream.from_pickle(filename))
                 print(f'loaded {filename}')
