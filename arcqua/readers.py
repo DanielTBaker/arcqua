@@ -18,8 +18,15 @@ import matplotlib.animation as animation
 import matplotlib.colors as colors
 import matplotlib.pyplot as plt
 
-from tqdm.notebook import tqdm
-
+try:
+    shell = get_ipython().__class__.__name__
+    if shell == 'ZMQInteractiveShell':
+        from tqdm.notebook import tqdm
+    else:
+        from tqdm import tqdm
+except:
+    from tqdm import tqdm
+    
 import arcqua.fitting as af
 
 import scintools.ththmod as thth
@@ -433,17 +440,25 @@ class DDMStream:
 
     def fit_curvatures(self, fw = .1,
                        etaMin = 7e-13*u.s**3, etaMax = 1.2e-12*u.s**3,
-                       nEtas = 100, edges = np.linspace(-2500, 2500, 256) * u.Hz, mode='square'):
+                       nEtas = 100, edges = np.linspace(-2500, 2500, 256) * u.Hz, mode='square',progress = -np.inf):
         self.etas = np.zeros(self.nSamples)*u.s**3
         self.etaErrors = np.zeros(self.nSamples)*u.s**3
-        for id in tqdm(range(self.nSamples),position=1,leave=False):
+        if progress <0:
+            it = range(self.nSamples)
+        else:
+            it = tqdm(range(self.nSamples),position=progress,leave=False)
+        for id in it:
             etaSearch = np.linspace(etaMin << u.s**3,etaMax << u.s**3,nEtas)
             self.etas[id], self.etaErrors[id] = self.single_fit(id,etaSearch,edges,fw,mode=mode)
             
 
-    def single_fit(self,id,etas,edges,fw=.1,plot=False,mode : str = 'square'):
+    def single_fit(self,id,etas,edges,fw=.1,plot=False,mode : str = 'square',progress = -np.inf):
         eigs = np.zeros(etas.shape[0])
-        for i in tqdm(range(eigs.shape[0]),position=2,leave=False):
+        if progress <0:
+            it = range(eigs.shape[0])
+        else:
+            it = tqdm(range(eigs.shape[0]),position=progress,leave=False)
+        for i in it:
             ththMatrix = thth.thth_map(
                 self.ddms[id],
                 (self.delay-self.specularDelay[id]).to(u.us),

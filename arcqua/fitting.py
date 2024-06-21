@@ -1,7 +1,16 @@
 ## General Python
 import numpy as np
 import os
-from tqdm import tqdm
+
+## Check if in a notebook for tqdm progress bars
+try:
+    shell = get_ipython().__class__.__name__
+    if shell == 'ZMQInteractiveShell':
+        from tqdm.notebook import tqdm
+    else:
+        from tqdm import tqdm
+except:
+    from tqdm import tqdm
 
 ## Astropy Tools
 from astropy.time import Time
