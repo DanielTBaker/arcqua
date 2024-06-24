@@ -664,7 +664,7 @@ class TRITON():
         flags2 = np.array(data.quality_flags_2)
         useable = (flags == 0)*(flags2 == 0)
 
-        times = Time((np.ones(flags.shape)*times[:,np.newaxis])[flags==0],format='gps')
+        times = Time((np.ones(flags.shape)*times[:,np.newaxis])[useable],format='gps')
         ddms = np.transpose(ddms[useable], (0, 2, 1))
         prn = prn[useable]
         flags2 = flags2[useable]
