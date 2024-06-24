@@ -662,36 +662,37 @@ class TRITON():
 
         flags = np.array(data.quality_flags)
         flags2 = np.array(data.quality_flags_2)
+        useable = (flags == 0)*(flags2 == 0)
 
         times = Time((np.ones(flags.shape)*times[:,np.newaxis])[flags==0],format='gps')
-        ddms = np.transpose(ddms[flags == 0], (0, 2, 1))
-        prn = prn[flags==0]
-        flags2 = flags2[flags==0]
-        sampleNumber = sampleNumber[flags==0]
-        channelNumber = channelNumber[flags==0]
+        ddms = np.transpose(ddms[useable], (0, 2, 1))
+        prn = prn[useable]
+        flags2 = flags2[useable]
+        sampleNumber = sampleNumber[useable]
+        channelNumber = channelNumber[useable]
 
 
-        observerPos = np.array([(np.ones(flags.shape)*np.array(data.SVPosX)[:,np.newaxis])[flags==0],
-                                (np.ones(flags.shape)*np.array(data.SVPosY)[:,np.newaxis])[flags==0],
-                                (np.ones(flags.shape)*np.array(data.SVPosZ)[:,np.newaxis])[flags==0]]).T*u.m
-        observerVel = np.array([(np.ones(flags.shape)*np.array(data.SVVelX)[:,np.newaxis])[flags==0],
-                                (np.ones(flags.shape)*np.array(data.SVVelY)[:,np.newaxis])[flags==0],
-                                (np.ones(flags.shape)*np.array(data.SVVelZ)[:,np.newaxis])[flags==0]]).T*u.m/u.s
-        specularPos = np.array([np.array(data.SPPosX)[flags==0],
-                                np.array(data.SPPosY)[flags==0],
-                                np.array(data.SPPosZ)[flags==0]]).T*u.m
-        sourcePos = np.array([np.array(data.GPSPosX)[flags==0],
-                                np.array(data.GPSPosY)[flags==0],
-                                np.array(data.GPSPosZ)[flags==0]]).T*u.m
-        sourceVel = np.array([np.array(data.GPSVelX)[flags==0],
-                                np.array(data.GPSVelY)[flags==0],
-                                np.array(data.GPSVelZ)[flags==0]]).T*u.m/u.s
+        observerPos = np.array([(np.ones(flags.shape)*np.array(data.SVPosX)[:,np.newaxis])[useable],
+                                (np.ones(flags.shape)*np.array(data.SVPosY)[:,np.newaxis])[useable],
+                                (np.ones(flags.shape)*np.array(data.SVPosZ)[:,np.newaxis])[useable]]).T*u.m
+        observerVel = np.array([(np.ones(flags.shape)*np.array(data.SVVelX)[:,np.newaxis])[useable],
+                                (np.ones(flags.shape)*np.array(data.SVVelY)[:,np.newaxis])[useable],
+                                (np.ones(flags.shape)*np.array(data.SVVelZ)[:,np.newaxis])[useable]]).T*u.m/u.s
+        specularPos = np.array([np.array(data.SPPosX)[useable],
+                                np.array(data.SPPosY)[useable],
+                                np.array(data.SPPosZ)[useable]]).T*u.m
+        sourcePos = np.array([np.array(data.GPSPosX)[useable],
+                                np.array(data.GPSPosY)[useable],
+                                np.array(data.GPSPosZ)[useable]]).T*u.m
+        sourceVel = np.array([np.array(data.GPSVelX)[useable],
+                                np.array(data.GPSVelY)[useable],
+                                np.array(data.GPSVelZ)[useable]]).T*u.m/u.s
 
 
         metaName : str = os.path.join(spDir,f'TRITON_{self.obsName}_metadata_v{self.version}_nc')
         meta = xr.load_dataset(metaName)
-        spDelay = np.array(meta['SP_CodePhase_shift'])[flags == 0]*self.scale
-        spDoppler = np.array(meta['SP_DopplerFrequency_shift'])[flags == 0]*u.Hz
+        spDelay = np.array(meta['SP_CodePhase_shift'])[useable]*self.scale
+        spDoppler = np.array(meta['SP_DopplerFrequency_shift'])[useable]*u.Hz
 
         delayRes : u.Quantity = data.attrs['codephase resolution (chip)']*self.scale
         dopplerRes : u.Quantity = data.attrs['Doppler resolution (Hz)']*u.Hz
