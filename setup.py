@@ -28,7 +28,7 @@ setup(
     author_email='dbaker@asiaa.sinica.edu.tw',
     license='MIT',
     packages=['arcqua'],
-    install_requires=['numpy', 'scipy', 'matplotlib', 'astropy'],
+    install_requires=['numpy', 'scipy', 'matplotlib', 'astropy','mechanize'],
     include_package_data=True,
     zip_safe=False,
 )

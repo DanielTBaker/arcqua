@@ -18,6 +18,11 @@ import matplotlib.animation as animation
 import matplotlib.colors as colors
 import matplotlib.pyplot as plt
 
+##Downloading Data
+import mechanize
+from getpass import getpass
+import datetime
+
 try:
     shell = get_ipython().__class__.__name__
     if shell == 'ZMQInteractiveShell':
@@ -602,9 +607,14 @@ class DDMStream:
         if fname:
             plt.savefig(fname)
 
-    def save(self,filename):
-        with open(f'{filename}.pkl', 'wb') as handle:
-            pkl.dump(self, handle, protocol=pkl.HIGHEST_PROTOCOL)
+    def save(self,fileName=None):
+        if fileName:
+            with open(f'{fileName}.pkl', 'wb') as handle:
+                pkl.dump(self, handle, protocol=pkl.HIGHEST_PROTOCOL)
+        if hasattr(self,'loadPath'):
+            with open(self.loadPath, 'wb') as handle:
+                pkl.dump(self, handle, protocol=pkl.HIGHEST_PROTOCOL)
+        raise AttributeError("Stream wasn't loaded from an existing file. File name required.")
 
     @classmethod
     def from_pickle(cls,filename,**kwargs) -> object:
@@ -625,113 +635,180 @@ class DDMStream:
                 new.__setattr__(parameter,loaded.__getattribute__(parameter))
             elif parameter in kwargs.keys():
                 new.__setattr__(parameter,kwargs[parameter])
-        new.fromFile = filename
+        new.__setattr__('loadPath',os.path.abspath(filename))
         return(new)
 
 
         
 
 class TRITON():
-    def __init__(self,groundTime,time,version) -> None:
+    def __init__(self,version = '1.0', rootDir = '.') -> None:
+        self.rootDir = rootDir
         self.freq : u.Quantity = 1.57542*u.GHz
         self.scale : u.Quantity = 1.0 * u.s / (65536.0 * 16.0)
         self.version = version
-        self.obsName = f'{int(groundTime):06}_{time}'
         self.streams = []
 
-    def load_data(self, dataDir, spDir, mode='raw', streamDir = '.') -> None:
+    def load_data(self, mode='raw',**kwargs) -> None:
+        dateString = self.get_date_string(**kwargs)
+        if not dateString:
+            raise ValueError('No matching call signature for date format')
+        dataDir = os.path.join(self.rootDir,dateString)
         assert mode in ['raw', 'power']
-        fileName : str = os.path.join(dataDir,f'TRITON_{self.obsName}_CorDDM_v{self.version}_nc')
-
-        data = xr.load_dataset(fileName)
-        if mode =='raw':
-            ddms = np.array(data.rawDDM)
+        if 'groundTimes' in kwargs:
+            groundTimes = kwargs['groundTimes']
+            if not isinstance(groundTimes,list):
+                groundTimes = [groundTimes]
         else:
-            ddms = np.array(data.DDMpower)
+            groundTimes = np.array([file[7:13] for file in os.listdir(dataDir)])
+            groundTimes = np.unique(groundTime)
 
-        
-
-        sampleNumber = np.linspace(0,ddms.shape[0]-1,
-                                   ddms.shape[0],
-                                   dtype=int)[:,np.newaxis]*np.ones(ddms.shape[:2])
-        channelNumber = np.ones(ddms.shape[:2])*np.linspace(0,ddms.shape[1]-1,
-                                                            ddms.shape[1],
-                                                            dtype=int)
-        prn = np.array(data.PRN)
-        times = (np.array(data.GPSSec)*u.s+np.array(data.GPSWeek)*u.week).value
-
-        flags = np.array(data.quality_flags)
-        flags2 = np.array(data.quality_flags_2)
-        useable = (flags == 0)*(flags2 == 0)
-
-        times = Time((np.ones(flags.shape)*times[:,np.newaxis])[useable],format='gps')
-        ddms = np.transpose(ddms[useable], (0, 2, 1))
-        prn = prn[useable]
-        flags2 = flags2[useable]
-        sampleNumber = sampleNumber[useable]
-        channelNumber = channelNumber[useable]
-
-
-        observerPos = np.array([(np.ones(flags.shape)*np.array(data.SVPosX)[:,np.newaxis])[useable],
-                                (np.ones(flags.shape)*np.array(data.SVPosY)[:,np.newaxis])[useable],
-                                (np.ones(flags.shape)*np.array(data.SVPosZ)[:,np.newaxis])[useable]]).T*u.m
-        observerVel = np.array([(np.ones(flags.shape)*np.array(data.SVVelX)[:,np.newaxis])[useable],
-                                (np.ones(flags.shape)*np.array(data.SVVelY)[:,np.newaxis])[useable],
-                                (np.ones(flags.shape)*np.array(data.SVVelZ)[:,np.newaxis])[useable]]).T*u.m/u.s
-        specularPos = np.array([np.array(data.SPPosX)[useable],
-                                np.array(data.SPPosY)[useable],
-                                np.array(data.SPPosZ)[useable]]).T*u.m
-        sourcePos = np.array([np.array(data.GPSPosX)[useable],
-                                np.array(data.GPSPosY)[useable],
-                                np.array(data.GPSPosZ)[useable]]).T*u.m
-        sourceVel = np.array([np.array(data.GPSVelX)[useable],
-                                np.array(data.GPSVelY)[useable],
-                                np.array(data.GPSVelZ)[useable]]).T*u.m/u.s
-
-
-        metaName : str = os.path.join(spDir,f'TRITON_{self.obsName}_metadata_v{self.version}_nc')
-        meta = xr.load_dataset(metaName)
-        spDelay = np.array(meta['SP_CodePhase_shift'])[useable]*self.scale
-        spDoppler = np.array(meta['SP_DopplerFrequency_shift'])[useable]*u.Hz
-
-        delayRes : u.Quantity = data.attrs['codephase resolution (chip)']*self.scale
-        dopplerRes : u.Quantity = data.attrs['Doppler resolution (Hz)']*u.Hz
-        delay  = np.linspace(0, ddms.shape[1] - 1, ddms.shape[1]) * delayRes
-        doppler = np.linspace(0, ddms.shape[2] - 1, ddms.shape[2]) * dopplerRes
-        delay -= delay[65] 
-        doppler -= doppler[33] 
-
-        for usePrn in np.unique(prn):
-            filename = os.path.join(streamDir,f'{self.obsName}_{usePrn}_v{self.version}')
-            if os.path.exists(f'{filename}.pkl'):
-                self.streams.append(DDMStream.from_pickle(filename))
-                print(f'loaded {filename}')
+        for groundTime in groundTimes:
+            fileName = [file for file in os.listdir(dataDir) if file[7:13]==str(groundTime) and 'CorDDM' in file and file[-6:-3]==self.version]
+            if len(fileName)>0:
+                fileName = fileName[0]
             else:
-                newStream = DDMStream(self.freq,usePrn, ddms[prn == usePrn], times[prn == usePrn],
-                                            delay, doppler,
-                                            spDelay[prn == usePrn],spDoppler[prn == usePrn],
-                                            observerPos[prn == usePrn],specularPos[prn == usePrn],sourcePos[prn == usePrn],
-                                            observerVel[prn == usePrn],sourceVel[prn == usePrn]
-                                            )
-                newStream.save(filename)
-                self.streams.append(newStream)
+                continue
+            obsName = fileName[7:28]
+            fileName = os.path.join(dataDir,filename)
+
+            data = xr.load_dataset(fileName)
+            if mode =='raw':
+                ddms = np.array(data.rawDDM)
+            else:
+                ddms = np.array(data.DDMpower)
+
+            
+
+            sampleNumber = np.linspace(0,ddms.shape[0]-1,
+                                    ddms.shape[0],
+                                    dtype=int)[:,np.newaxis]*np.ones(ddms.shape[:2])
+            channelNumber = np.ones(ddms.shape[:2])*np.linspace(0,ddms.shape[1]-1,
+                                                                ddms.shape[1],
+                                                                dtype=int)
+            prn = np.array(data.PRN)
+            times = (np.array(data.GPSSec)*u.s+np.array(data.GPSWeek)*u.week).value
+
+            flags = np.array(data.quality_flags)
+            flags2 = np.array(data.quality_flags_2)
+            useable = (flags == 0)*(flags2 == 0)
+
+            times = Time((np.ones(flags.shape)*times[:,np.newaxis])[useable],format='gps')
+            ddms = np.transpose(ddms[useable], (0, 2, 1))
+            prn = prn[useable]
+            flags2 = flags2[useable]
+            sampleNumber = sampleNumber[useable]
+            channelNumber = channelNumber[useable]
+
+
+            observerPos = np.array([(np.ones(flags.shape)*np.array(data.SVPosX)[:,np.newaxis])[useable],
+                                    (np.ones(flags.shape)*np.array(data.SVPosY)[:,np.newaxis])[useable],
+                                    (np.ones(flags.shape)*np.array(data.SVPosZ)[:,np.newaxis])[useable]]).T*u.m
+            observerVel = np.array([(np.ones(flags.shape)*np.array(data.SVVelX)[:,np.newaxis])[useable],
+                                    (np.ones(flags.shape)*np.array(data.SVVelY)[:,np.newaxis])[useable],
+                                    (np.ones(flags.shape)*np.array(data.SVVelZ)[:,np.newaxis])[useable]]).T*u.m/u.s
+            specularPos = np.array([np.array(data.SPPosX)[useable],
+                                    np.array(data.SPPosY)[useable],
+                                    np.array(data.SPPosZ)[useable]]).T*u.m
+            sourcePos = np.array([np.array(data.GPSPosX)[useable],
+                                    np.array(data.GPSPosY)[useable],
+                                    np.array(data.GPSPosZ)[useable]]).T*u.m
+            sourceVel = np.array([np.array(data.GPSVelX)[useable],
+                                    np.array(data.GPSVelY)[useable],
+                                    np.array(data.GPSVelZ)[useable]]).T*u.m/u.s
+
+
+            metaName : str = os.path.join(dataDir,f'TRITON_{obsName}_metadata_v{self.version}_nc')
+            meta = xr.load_dataset(metaName)
+            spDelay = np.array(meta['SP_CodePhase_shift'])[useable]*self.scale
+            spDoppler = np.array(meta['SP_DopplerFrequency_shift'])[useable]*u.Hz
+
+            delayRes : u.Quantity = data.attrs['codephase resolution (chip)']*self.scale
+            dopplerRes : u.Quantity = data.attrs['Doppler resolution (Hz)']*u.Hz
+            delay  = np.linspace(0, ddms.shape[1] - 1, ddms.shape[1]) * delayRes
+            doppler = np.linspace(0, ddms.shape[2] - 1, ddms.shape[2]) * dopplerRes
+            delay -= delay[65] 
+            doppler -= doppler[33] 
+            streamDir = os.path.join(dataDir,'streams')
+            if not os.path.exists(streamDir):
+                    os.makedirs(streamDir)
+            for usePrn in np.unique(prn):
+                filename = os.path.join(streamDir,f'{obsName}_{usePrn}_v{self.version}')
+                if os.path.exists(f'{filename}.pkl'):
+                    self.streams.append(DDMStream.from_pickle(filename))
+                    print(f'loaded {filename}')
+                else:
+                    newStream = DDMStream(self.freq,usePrn, ddms[prn == usePrn], times[prn == usePrn],
+                                                delay, doppler,
+                                                spDelay[prn == usePrn],spDoppler[prn == usePrn],
+                                                observerPos[prn == usePrn],specularPos[prn == usePrn],sourcePos[prn == usePrn],
+                                                observerVel[prn == usePrn],sourceVel[prn == usePrn]
+                                                )
+                    newStream.save(filename)
+                    self.streams.append(newStream)
+
+    def get_date_string(self,**kwargs):
+        if 'date' in kwargs:
+            date = kwargs['date']
+            if isinstance(date,int):
+                date = str(date)
+            date = datetime.datetime(int(date[:4]),int(date[4:6]),int(date[6:8]))
+            date = date.timetuple()
+            year = date.tm_year
+            day = str(date.tm_yday).zfill(3)
+            dateString = f'{year}.{day}'
+            return(dateString)
+        elif 'year' in kwargs:
+            if 'day' in kwargs:
+                if 'month' in kwargs:
+                    date = datetime.datetime(int(kwargs['year']),int(kwargs['month']),int(kwargs['day']))
+                    date = date.timetuple()
+                    year = date.tm_year
+                    day = str(date.tm_yday).zfill(3)
+                    dateString = f'{year}.{day}'
+                    return(dateString)
+                else:
+                    year = kwargs['year']
+                    day = str(kwargs['day']).zfill(3)
+                    dateString = f'{year}.{day}'
+                    return(dateString)
+
+        return(None)
                     
 
-    def _select_indices(self, usePrn, prn,
-                        spChannelNumber, spSampleNumber,
-                        sampleNumber, channelNumber):
-        spID = list()
-        ddmID = list()
-        for i in range(channelNumber.shape[0]):
-            if not prn[i] == usePrn:
-                continue
-            cnp = channelNumber[i]
-            snp = sampleNumber[i]
-            for j in range(spChannelNumber.shape[0]):
-                cns = spChannelNumber[j]
-                sns = spSampleNumber[j]
-                if (cns==cnp) and  (sns==snp):
-                    spID.append(j)
-                    ddmID.append(i)
-                    break
-        return(spID,ddmID)
+    def download_data(self,**kwargs):
+        if 'user' in kwargs:
+            user = kwargs['user']
+        else:
+            user = input('Username:')
+        if 'pwd' in kwargs or 'password' in kwargs:
+            pwd = kwargs['pwd']
+        else:
+            pwd = getpass()
+        
+        dateString = self.get_date_string(**kwargs)
+
+        if not dateString:
+            raise ValueError('No matching call signature for date format')
+        baseURL = 'https://tacc.cwa.gov.tw/data-service/triton/level1b/'
+        ## Prepare browser
+        br = mechanize.Browser()
+        br.set_handle_robots(False)
+        br.set_handle_refresh(False) 
+        br.add_password(baseURL, user, pwd)
+        br.open(baseURL)
+
+        dataFolderUrls = [link.absolute_url for link in br.links() if link.text[:8]==dateString]
+        if len(dataFolderUrls)>0:
+            if not os.path.exists(os.path.join(self.rootDir,dateString)):
+                os.makedirs(os.path.join(self.rootDir,dateString))
+            br.open(dataFolderUrls[0])
+            files = [(link.absolute_url,link.text) for link in br.links() if link.text[:7]=="TRITON_" and link.text[-2:]=='nc']
+            for pair in files:
+                br.add_password(pair[0], user, pwd)
+                if 'CorDDM' in pair[1] or 'metadata' in pair[1]:
+                    fname = os.path.join(self.rootDir,dateString,pair[1])
+                    br.retrieve(pair[0],fname)[0]
+        else:
+            print(f'No Matching Folder exists for {dateString}')
+
