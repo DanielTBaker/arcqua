@@ -611,9 +611,11 @@ class DDMStream:
         if fileName:
             with open(f'{fileName}.pkl', 'wb') as handle:
                 pkl.dump(self, handle, protocol=pkl.HIGHEST_PROTOCOL)
+            return
         if hasattr(self,'loadPath'):
             with open(self.loadPath, 'wb') as handle:
                 pkl.dump(self, handle, protocol=pkl.HIGHEST_PROTOCOL)
+            return
         raise AttributeError("Stream wasn't loaded from an existing file. File name required.")
 
     @classmethod
@@ -654,6 +656,10 @@ class TRITON():
         if not dateString:
             raise ValueError('No matching call signature for date format')
         dataDir = os.path.join(self.rootDir,dateString)
+        if not os.path.exists(dataDir):
+            self.download_data(dateString=dateString)
+        elif len(os.os.listdir(dataDir))<2:
+            self.download_data(dateString=dateString)
         assert mode in ['raw', 'power']
         if 'groundTimes' in kwargs:
             groundTimes = kwargs['groundTimes']
@@ -661,7 +667,7 @@ class TRITON():
                 groundTimes = [groundTimes]
         else:
             groundTimes = np.array([file[7:13] for file in os.listdir(dataDir)])
-            groundTimes = np.unique(groundTime)
+            groundTimes = np.unique(groundTimes)
 
         for groundTime in groundTimes:
             fileName = [file for file in os.listdir(dataDir) if file[7:13]==str(groundTime) and 'CorDDM' in file and file[-6:-3]==self.version]
@@ -670,7 +676,7 @@ class TRITON():
             else:
                 continue
             obsName = fileName[7:28]
-            fileName = os.path.join(dataDir,filename)
+            fileName = os.path.join(dataDir,fileName)
 
             data = xr.load_dataset(fileName)
             if mode =='raw':
@@ -744,10 +750,12 @@ class TRITON():
                                                 observerPos[prn == usePrn],specularPos[prn == usePrn],sourcePos[prn == usePrn],
                                                 observerVel[prn == usePrn],sourceVel[prn == usePrn]
                                                 )
-                    newStream.save(filename)
+                    newStream.save(fileName=filename)
                     self.streams.append(newStream)
 
     def get_date_string(self,**kwargs):
+        if 'dateString' in kwargs:
+            return(kwargs['dateString'])
         if 'date' in kwargs:
             date = kwargs['date']
             if isinstance(date,int):
@@ -808,7 +816,10 @@ class TRITON():
                 br.add_password(pair[0], user, pwd)
                 if 'CorDDM' in pair[1] or 'metadata' in pair[1]:
                     fname = os.path.join(self.rootDir,dateString,pair[1])
-                    br.retrieve(pair[0],fname)[0]
+                    if os.path.exists(fname):
+                        print(f'File {pair[1]} already exists')
+                    else:
+                        br.retrieve(pair[0],fname)[0]
         else:
             print(f'No Matching Folder exists for {dateString}')
 
