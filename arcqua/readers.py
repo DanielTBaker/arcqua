@@ -387,7 +387,7 @@ class DDMStream:
         if xVel.min()<0 and xVel.max()>0:
             self.crossingID = np.argmin(np.abs(xVel))
 
-    def plot_sample(self,id):
+    def plot_sample(self,id, fname = None):
         plt.figure()
         extent = thth.ext_find(self.doppler,self.delay.to(u.us))
         plt.imshow(self.ddms[id],
@@ -399,10 +399,12 @@ class DDMStream:
             plt.plot(self.doppler,
                      (self.etas[id]*(self.doppler-self.specularDoppler[id])**2 + self.specularDelay[id]).to(u.us))
             plt.ylim(extent[2:])
+        if fname:
+            plt.savefig(fname)
 
     def animate_range(self,idMin = 0, idMax = np.inf, fps=10,fname = None):
         animMin = max(idMin,0)
-        animMax = min(idMax,self.nSamples)
+        animMax = min(idMax,self.nSamples-1)
         i=animMin
 
         extent = thth.ext_find(self.doppler,self.delay.to(u.us))
@@ -522,7 +524,8 @@ class DDMStream:
         except:
             return(np.nan,np.nan)
 
-    def find_evals(self,id,eta,edges,mode : str = 'square'):
+    def find_evals(self,id,eta,edges,mode : str = 'square', pad=False):
+        
         ththMatrix = thth.thth_map(
                 self.ddms[id],
                 (self.delay-self.specularDelay[id]).to(u.us),
@@ -537,9 +540,9 @@ class DDMStream:
         if 'sub' in mode.lower():
             S-=np.median(S)
         if 'norm' in mode.lower():
-            eig = S[0]/S[1]
+            eig = (S[0]-np.median(S))/(S[1]-np.median(S))
         elif 'sum' in mode.lower():
-            eig = np.sqrt(S[0]/np.sum(S))
+            eig = S[0]/np.sum(S)
         else:
             eig=S[0]
         return(eig)
@@ -587,10 +590,14 @@ class DDMStream:
             dth = (self.thetas[1]-self.thetas[0]).value/2
             th0 = self.thetas[0].value
             th1 = self.thetas[-1].value
-            for i in range(self.nSamples):
-                plt.imshow(self.chiArr[:,i:i+1],origin='lower',
-                        aspect='auto',
-                        extent=[self.offsetTime[i]-.5,self.offsetTime[i]+.5,th0-dth,th1+dth],norm=colors.LogNorm(),cmap='magma')
+            mx = 10
+            mn = 1
+            chiArr2 = np.zeros((self.chiArr.shape[0],int(np.round(self.offsetTime.max())+1)))*np.nan
+            for i1,i2 in enumerate(self.offsetTime):
+                chiArr2[:,int(np.round(i2))]=self.chiArr[:,i1]
+            plt.imshow(chiArr2,origin='lower',
+                    aspect='auto',
+                    extent=[self.offsetTime[0]-.5,self.offsetTime[-1]+.5,th0-dth,th1+dth],norm=colors.LogNorm(vmin=mn,vmax=mx),cmap='magma',interpolation='None')
             plt.xlim((-.5,self.offsetTime.max()+.5))
         
         if format == 'pcolor':
@@ -601,15 +608,15 @@ class DDMStream:
             for offset in [-width,width]:
                 plt.axhline(angle+offset)
 
-        plt.xlabel(r'\Delta t ~\left(\rm{s}\right)')
-        plt.ylabel(r'\theta~\left(^{\circ}\right)')
+        plt.xlabel(r'$\Delta t ~\left(\rm{s}\right)$')
+        plt.ylabel(r'$\theta~\left(^{\circ}\right)$')
         plt.tight_layout()
         if fname:
             plt.savefig(fname)
 
     def save(self,fileName=None):
         if fileName:
-            with open(f'{fileName}.pkl', 'wb') as handle:
+            with open(fileName, 'wb') as handle:
                 pkl.dump(self, handle, protocol=pkl.HIGHEST_PROTOCOL)
             return
         if hasattr(self,'loadPath'):
@@ -620,7 +627,7 @@ class DDMStream:
 
     @classmethod
     def from_pickle(cls,filename,**kwargs) -> object:
-        with open(f'{filename}.pkl', 'rb') as handle:
+        with open(f'{filename}', 'rb') as handle:
             loaded : object = pkl.load(handle)
         
         loadDict = {}
@@ -651,15 +658,15 @@ class TRITON():
         self.version = version
         self.streams = []
 
-    def load_data(self, mode='raw',**kwargs) -> None:
+    def load_data(self, mode='raw',verbose=False,**kwargs) -> None:
         dateString = self.get_date_string(**kwargs)
         if not dateString:
             raise ValueError('No matching call signature for date format')
         dataDir = os.path.join(self.rootDir,dateString)
         if not os.path.exists(dataDir):
-            self.download_data(dateString=dateString)
-        elif len(os.os.listdir(dataDir))<2:
-            self.download_data(dateString=dateString)
+            self.download_data(**kwargs)
+        elif len(os.listdir(dataDir))<2:
+            self.download_data(**kwargs)
         assert mode in ['raw', 'power']
         if 'groundTimes' in kwargs:
             groundTimes = kwargs['groundTimes']
@@ -697,12 +704,11 @@ class TRITON():
 
             flags = np.array(data.quality_flags)
             flags2 = np.array(data.quality_flags_2)
-            useable = (flags == 0)*(flags2 == 0)
+            useable = (flags == 0)*(flags2 != 0)
 
             times = Time((np.ones(flags.shape)*times[:,np.newaxis])[useable],format='gps')
             ddms = np.transpose(ddms[useable], (0, 2, 1))
             prn = prn[useable]
-            flags2 = flags2[useable]
             sampleNumber = sampleNumber[useable]
             channelNumber = channelNumber[useable]
 
@@ -739,10 +745,11 @@ class TRITON():
             if not os.path.exists(streamDir):
                     os.makedirs(streamDir)
             for usePrn in np.unique(prn):
-                filename = os.path.join(streamDir,f'{obsName}_{usePrn}_v{self.version}')
-                if os.path.exists(f'{filename}.pkl'):
-                    self.streams.append(DDMStream.from_pickle(filename))
-                    print(f'loaded {filename}')
+                fileName = os.path.join(streamDir,f'{obsName}_{usePrn}_v{self.version}.pkl')
+                if os.path.exists(fileName):
+                    self.streams.append(DDMStream.from_pickle(fileName))
+                    if verbose:
+                        print(f'loaded {fileName}')
                 else:
                     newStream = DDMStream(self.freq,usePrn, ddms[prn == usePrn], times[prn == usePrn],
                                                 delay, doppler,
@@ -750,7 +757,7 @@ class TRITON():
                                                 observerPos[prn == usePrn],specularPos[prn == usePrn],sourcePos[prn == usePrn],
                                                 observerVel[prn == usePrn],sourceVel[prn == usePrn]
                                                 )
-                    newStream.save(fileName=filename)
+                    newStream.save(fileName=fileName)
                     self.streams.append(newStream)
 
     def get_date_string(self,**kwargs):
@@ -789,10 +796,12 @@ class TRITON():
             user = kwargs['user']
         else:
             user = input('Username:')
-        if 'pwd' in kwargs or 'password' in kwargs:
+        if 'pwd' in kwargs:
             pwd = kwargs['pwd']
+        elif 'password' in kwargs:
+            pwd = kwargs['password']
         else:
-            pwd = getpass()
+            pwd = getpass('Password:')
         
         dateString = self.get_date_string(**kwargs)
 
