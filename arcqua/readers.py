@@ -3,6 +3,7 @@
 import numpy as np
 import os
 from scipy.optimize import curve_fit
+from scipy.interpolate import interp1d
 
 ## Data Loaders
 import xarray as xr
@@ -448,7 +449,7 @@ class DDMStream:
     def fit_curvatures(self, fw = .1,
                        etaMin = 7e-13*u.s**3, etaMax = 1.2e-12*u.s**3,
                        nEtas = 100, edges = np.linspace(-2500, 2500, 256) * u.Hz,
-                       mode='square',progress = -np.inf, pool = None):
+                       mode='square',progress = -np.inf, pool = None, cutTHTH = True,**kwargs):
         self.etas = np.zeros(self.nSamples)*u.s**3
         self.etaErrors = np.zeros(self.nSamples)*u.s**3
         if progress <0:
@@ -457,17 +458,16 @@ class DDMStream:
             it = tqdm(range(self.nSamples),position=progress,leave=False)
         for id in it:
             etaSearch = np.linspace(etaMin << u.s**3,etaMax << u.s**3,nEtas)
-            self.etas[id], self.etaErrors[id] = self.single_fit(id,etaSearch,edges,fw,mode=mode,progress=progress+1,pool=pool)
+            self.etas[id], self.etaErrors[id] = self.single_fit(id,etaSearch,edges,fw,mode=mode,progress=progress+1,pool=pool,cutTHTH=cutTHTH)
             
-
-    def single_fit(self,id,etas,edges,fw=.1,plot=False,mode : str = 'square',progress = -np.inf, pool = None):
+    def single_fit(self,id,etas,edges,fw=.1,plot=False,mode : str = 'square',progress = -np.inf, pool = None, cutTHTH = True):
         eigs = np.zeros(etas.shape[0])
         if pool:
             it = range(eigs.shape[0])
             args = []
             for i in it:
                 args.append((id,etas[i],edges,mode))
-            res = pool.map(self.find_evals, pars)
+            res = pool.map(self.find_evals, args)
             for i in it:
                 eigs[i]=res[i]
         else:
@@ -476,7 +476,7 @@ class DDMStream:
             else:
                 it = tqdm(range(eigs.shape[0]),position=progress,leave=False)
             for i in it:
-                eigs[i]=self.find_evals(id,etas[i],edges,mode)
+                eigs[i]=self.find_evals(id,etas[i],edges,mode, cutTHTH=cutTHTH)
         etas = etas[np.isfinite(eigs)]
         eigs = eigs[np.isfinite(eigs)]
         try:
@@ -524,9 +524,9 @@ class DDMStream:
         except:
             return(np.nan,np.nan)
 
-    def find_evals(self,id,eta,edges,mode : str = 'square', pad=False):
+    def find_evals(self,id,eta,edges,mode : str = 'square', pad=False, cutTHTH = True):
         
-        ththMatrix = thth.thth_map(
+        ththMatrix = thth.thth_redmap(
                 self.ddms[id],
                 (self.delay-self.specularDelay[id]).to(u.us),
                 (self.doppler-self.specularDoppler[id]).to(u.mHz),
@@ -534,6 +534,10 @@ class DDMStream:
                 edges.to(u.mHz),
                 hermetian=False,
             ).real
+        cents = (edges[1:]+edges[:-1])/2
+        if cutTHTH:
+            ththMatrix = ththMatrix[:,eta*cents**2+self.specularDelay[id] < self.delay.max()]
+            ththMatrix = ththMatrix[-eta*cents**2+self.specularDelay[id] > self.delay.min()]
         U,S,W=np.linalg.svd(ththMatrix)
         if 'square' in mode.lower():
             S=S**2
@@ -546,6 +550,7 @@ class DDMStream:
         else:
             eig=S[0]
         return(eig)
+
     def fit_thetas(self, thetas = np.linspace(-90,90,361)[:-1]*u.deg, progress = -np.inf, pool = None):
         if not hasattr(self,'etas'):
             self.fit_curvatures(progress = progress, pool = pool)
@@ -580,6 +585,26 @@ class DDMStream:
 
             etas = af.calcCurvatures(thetaI, psis, des, drs, obsVel2, emVel2, self.freq)
             self.chiArr[i] = (np.abs(etas-self.etas)**2)/self.etaErrors**2
+
+    def fit_asymm(self,edges = np.linspace(-2500, 2500, 256) * u.Hz,**kwargs):
+        if not hasattr(self,"etas"):
+            self.fit_curvatures(**kwargs)
+        asymm = np.zeros(self.nSamples)
+        etaInterp = interp1d(self.offsetTime[np.isfinite(self.etas)],
+                                self.etas[np.isfinite(self.etas)],
+                                bounds_error=False,fill_value='extrapolate',kind='cubic'
+                                )
+        for sampleID in range(self.nSamples):
+            eta = etaInterp(self.offsetTime[sampleID])
+            ththMatrix = thth.thth_map(
+                self.ddms[sampleID],
+                (self.delay-self.specularDelay[sampleID]).to(u.us),
+                (self.doppler-self.specularDoppler[sampleID]).to(u.mHz),
+                eta,
+                edges.to(u.mHz),
+                hermetian=False,
+            ).real
+
 
     def plot_chis(self, angles = [], width = 0, format = 'imshow', fname = None):
         if not hasattr(self,'chiArr'):
@@ -758,6 +783,7 @@ class TRITON():
                                                 observerVel[prn == usePrn],sourceVel[prn == usePrn]
                                                 )
                     newStream.save(fileName=fileName)
+                    newStream.loadPath = os.path.abspath(fileName)
                     self.streams.append(newStream)
 
     def get_date_string(self,**kwargs):
