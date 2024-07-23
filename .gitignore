@@ -6,3 +6,4 @@ dist/
 dist/*
 .vscode/settings.json
 *.pyc
+arcqua/.vscode/settings.json
