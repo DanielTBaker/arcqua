@@ -447,9 +447,9 @@ class DDMStream:
             plt.show()
 
     def fit_curvatures(self, fw = .1,
-                       etaMin = 7e-13*u.s**3, etaMax = 1.2e-12*u.s**3,
-                       nEtas = 100, edges = np.linspace(-2500, 2500, 256) * u.Hz,
-                       mode='square',progress = -np.inf, pool = None, cutTHTH = True,**kwargs):
+                       etaMin = 3e-13*u.s**3, etaMax = 2.0e-12*u.s**3,
+                       nEtas = 200, edges = np.linspace(-2500, 2500, 256) * u.Hz,
+                       mode='square',progress = -np.inf, pool = None, cutTHTH = False,**kwargs):
         self.etas = np.zeros(self.nSamples)*u.s**3
         self.etaErrors = np.zeros(self.nSamples)*u.s**3
         if progress <0:
@@ -460,7 +460,7 @@ class DDMStream:
             etaSearch = np.linspace(etaMin << u.s**3,etaMax << u.s**3,nEtas)
             self.etas[id], self.etaErrors[id] = self.single_fit(id,etaSearch,edges,fw,mode=mode,progress=progress+1,pool=pool,cutTHTH=cutTHTH)
             
-    def single_fit(self,id,etas,edges,fw=.1,plot=False,mode : str = 'square',progress = -np.inf, pool = None, cutTHTH = True):
+    def single_fit(self,id,etas,edges,fw=.1,plot=False,mode : str = 'square',progress = -np.inf, pool = None, cutTHTH = False):
         eigs = np.zeros(etas.shape[0])
         if pool:
             it = range(eigs.shape[0])
@@ -521,12 +521,12 @@ class DDMStream:
                 plt.xlabel(r'$\eta~\left(\rm{s}^3\right)$')
                 plt.ylabel('Peak Eigenvalue')
             return(etaFit,etaSig)
-        except:
+        except Exception as e:
             return(np.nan,np.nan)
 
-    def find_evals(self,id,eta,edges,mode : str = 'square', pad=False, cutTHTH = True):
+    def find_evals(self,id,eta,edges,mode : str = 'square', pad=False, cutTHTH = False):
         
-        ththMatrix = thth.thth_redmap(
+        ththMatrix = thth.thth_map(
                 self.ddms[id],
                 (self.delay-self.specularDelay[id]).to(u.us),
                 (self.doppler-self.specularDoppler[id]).to(u.mHz),
@@ -546,7 +546,7 @@ class DDMStream:
         if 'norm' in mode.lower():
             eig = (S[0]-np.median(S))/(S[1]-np.median(S))
         elif 'sum' in mode.lower():
-            eig = S[0]/np.sum(S)
+            eig = S[0]**2/np.sum(S**2)
         else:
             eig=S[0]
         return(eig)
@@ -589,21 +589,29 @@ class DDMStream:
     def fit_asymm(self,edges = np.linspace(-2500, 2500, 256) * u.Hz,**kwargs):
         if not hasattr(self,"etas"):
             self.fit_curvatures(**kwargs)
-        asymm = np.zeros(self.nSamples)
+        self.asymm = np.zeros(self.nSamples)
         etaInterp = interp1d(self.offsetTime[np.isfinite(self.etas)],
                                 self.etas[np.isfinite(self.etas)],
                                 bounds_error=False,fill_value='extrapolate',kind='cubic'
                                 )
+        cents=(edges[1:]+edges[:-1])/2
         for sampleID in range(self.nSamples):
-            eta = etaInterp(self.offsetTime[sampleID])
-            ththMatrix = thth.thth_map(
+            eta = etaInterp(self.offsetTime[sampleID])<<self.etas.unit
+            ththMatrix= thth.thth_map(
                 self.ddms[sampleID],
                 (self.delay-self.specularDelay[sampleID]).to(u.us),
                 (self.doppler-self.specularDoppler[sampleID]).to(u.mHz),
                 eta,
                 edges.to(u.mHz),
                 hermetian=False,
-            ).real
+            )
+            ththMatrix = ththMatrix[-eta*cents**2+self.specularDelay[sampleID]>self.delay.min()][:,eta*cents**2+self.specularDelay[sampleID]<self.delay.max()]
+            centsX = cents[eta*cents**2+self.specularDelay[sampleID]<self.delay.max()]
+            U,S,W = np.linalg.svd(ththMatrix)
+            left = W[0,centsX<0]
+            right = W[0,centsX>0]
+            self.asymm[sampleID]=(np.sum(left)-np.sum(right))/((np.sum(left)+np.sum(right))/2)
+
 
 
     def plot_chis(self, angles = [], width = 0, format = 'imshow', fname = None):
