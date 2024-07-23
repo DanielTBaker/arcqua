@@ -22,10 +22,10 @@ from astropy.coordinates import EarthLocation
 import matplotlib.animation as animation
 import matplotlib.colors as colors
 import matplotlib.pyplot as plt
-import geopandas
-from shapely.geometry import LineString
-from shapely.ops import split
-from shapely.affinity import translate
+try:
+    import geopandas
+except:
+    print('No Geopandas')
 
 ## Scintools
 import scintools.ththmod as THTH
