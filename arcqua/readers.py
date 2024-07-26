@@ -466,7 +466,8 @@ class DDMStream:
             it = range(eigs.shape[0])
             args = []
             for i in it:
-                args.append((id,etas[i],edges,mode))
+                params = [id,etas[i],edges,mode]
+                args.append(params)
             res = pool.map(self.find_evals, args)
             for i in it:
                 eigs[i]=res[i]
