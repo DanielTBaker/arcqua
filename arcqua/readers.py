@@ -468,7 +468,7 @@ class DDMStream:
             for i in it:
                 params = [id,etas[i],edges,mode]
                 args.append(params)
-            res = pool.map(self.find_evals, args)
+            res = pool.map(self.find_evals_pool, args)
             for i in it:
                 eigs[i]=res[i]
         else:
@@ -525,8 +525,10 @@ class DDMStream:
         except Exception as e:
             return(np.nan,np.nan)
 
-    def find_evals(self,id,eta,edges,mode : str = 'square', pad=False, cutTHTH = False):
-        
+    def find_evals_pool(self,params):
+        return(self.find_evals(*params))
+    
+    def find_evals(self,id,eta,edges,mode : str = 'square', pad=False, cutTHTH = False): 
         ththMatrix = thth.thth_map(
                 self.ddms[id],
                 (self.delay-self.specularDelay[id]).to(u.us),
