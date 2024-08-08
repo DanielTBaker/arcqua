@@ -39,297 +39,6 @@ import scintools.ththmod as thth
 import pickle as pkl
 
 
-class DDMI:
-
-    def __init__(self,
-                 date,
-                 fitsDir='.',
-                 ddmiDir='.',
-                 archiveDir = '.',
-                 uvDir = '.',
-                 mapDir = '.',
-                 instrument='cyg',
-                 nSats=8,
-                 nSources=np.array([2,3,4]).astype(int)):
-        self.date=date
-        self.instrument=instrument
-        self.fitsDir=fitsDir
-        self.ddmiDir=ddmiDir
-        self.archiveDir = archiveDir
-        self.nSats=nSats
-        self.nSources=nSources
-        self.freq = 1.57542 * u.GHz
-        self.uvDir=uvDir
-        self.mapDir = mapDir
-        print('Load DDMs')
-        self._read_ddms()
-        print('Load Fits')
-        self._read_fits()
-        print('Load Archival')
-        self._read_archive()
-        try:
-            self._load_UV()
-        except:
-            print('Calculate UVs')
-            self._calc_UV()
-            self._save_UV()
-        try:
-            self._load_uv_map()
-        except:
-            print('Calculate UV Map')
-            self._calc_uv_map()
-            self._save_uv_map()
-    
-    def _read_ddms(self):
-        self.ddms={}
-        for satNum in range(self.nSats):
-            fnames = [os.path.join(self.ddmiDir,f'{self.date}-{self.instrument}{str(satNum+1).zfill(2)}-{nSource}source.npz') for nSource in self.nSources]
-            exists = np.array([os.path.exists(fname) for fname in fnames])
-            if np.any(exists):
-                self.ddms.update({satNum+1 : {}})
-                for id in range(self.nSources.shape[0]):
-                    if exists[id]:
-                        arch=np.load(fnames[id])
-                        self.ddms[satNum+1].update({self.nSources[id]: {
-                            "time" : Time(arch['time'],format='mjd'),
-                            "ddm" : arch['ddm'],
-                            "delay" : arch['delay']*u.us,
-                            "doppler" : arch['doppler']*u.Hz,
-                            "tau0" : arch['tau0']*u.us,
-                            "fd0" : arch['fd0']*u.Hz,
-                            "specularPos" : arch['specularPos']*u.m,
-                            "observerPos" : arch['observerPos']*u.m,
-                            "sourcePos" : arch['sourcePos']*u.m,
-                            "specularVel" : arch['specularVel']*u.m/u.s,
-                            "observerVel" : arch['observerVel']*u.m/u.s,
-                            "sourceVel" : arch['sourceVel']*u.m/u.s,
-                            "gpsCode" : arch['gpsCode'],
-                            "sampleNumber" : arch['sampleNumber']
-                        }})
-
-
-
-    def _read_fits(self):
-        self.fits={}
-        for satNum in range(self.nSats):
-            self.fits.update({satNum+1 : {}})
-            for nSource in self.nSources:
-                try:
-                    arch=np.load(os.path.join(self.fitsDir,f'{self.date}-{self.instrument}{str(satNum+1).zfill(2)}-{nSource}source_fits_full.npz'))
-                    self.fits[satNum+1].update({nSource : {}})
-                    powers=arch['powers']
-                    asymm=arch['asymm']
-                    thetas=arch['thetas']*u.deg
-                    fitPars=arch['fitPars']
-                    fitRes=arch['fitRes']
-                    sampleNumber=arch['sampleNumber']
-                    self.fits[satNum+1][nSource].update({'powers' : powers})
-                    self.fits[satNum+1][nSource].update({'thetas' : thetas})
-                    self.fits[satNum+1][nSource].update({'asymm' : asymm})
-                    self.fits[satNum+1][nSource].update({'fitPars' : fitPars})
-                    self.fits[satNum+1][nSource].update({'fitRes' : fitRes})
-                    self.fits[satNum+1][nSource].update({'sampleNumber' : sampleNumber})
-                    self.fits[satNum+1][nSource].update({'best' : fitRes[:,:,1]==fitRes[:,:,1].min(1)[:,np.newaxis]})
-                except:
-                    print(f'{nSource} fit does not exist for cyg{self.instrument}{str(satNum+1).zfill(2)} on {self.date}')
-    
-    def _read_archive(self):
-        self.archival = xr.load_dataset(os.path.join(self.archiveDir,f'{self.date}.nc'))
-
-    def _build_results(self,results,pars):
-        names=['left','right']
-        best=names[np.argmin(results[:,2])]
-        worst=names[1-np.argmin(results[:,2])]
-        fitRes = {}
-        fitRes.update({'left':{}})
-        fitRes.update({'right':{}})
-        fitRes.update({'best':best})
-        fitRes.update({'worst':worst})
-        for i in range(2):
-            fitRes[names[i]].update({'mean': results[i,0]})
-            fitRes[names[i]].update({'err': results[i,1]})
-            fitRes[names[i]].update({'chi': results[i,2]})
-            fitRes[names[i]].update({'std': results[i,3]})
-            fitRes[names[i]].update({'fits': pars[i]})
-        return(fitRes)
-    
-    def plot_sample(self,satNum,nSample,nSource,fname=None,archival=False):
-        fitRes = self._build_results(self.fits[satNum][nSource]['fitRes'][nSample],self.fits[satNum][nSource]['fitPars'][nSample])
-        if archival:
-            time = self.ddms[satNum][nSource]['time'][nSample]
-            archivalID = np.argmin(np.abs(self.ddms[1][4]['time'][0]-Time(np.array(self.archival.time))))
-            af.single_plot(self.ddms[satNum][nSource]['ddm'][nSample],
-                    self.ddms[satNum][nSource]['sourcePos'][nSample],
-                    self.ddms[satNum][nSource]['specularPos'][nSample],
-                    self.ddms[satNum][nSource]['observerPos'][nSample],
-                    self.ddms[satNum][nSource]['sourceVel'][nSample],
-                    self.ddms[satNum][nSource]['observerVel'][nSample],
-                    self.ddms[satNum][nSource]['delay'],
-                    self.ddms[satNum][nSource]['doppler'],
-                    self.ddms[satNum][nSource]['tau0'][nSample],
-                    self.ddms[satNum][nSource]['fd0'][nSample],
-                    self.freq,
-                    fitRes,
-                    self.fits[satNum][nSource]['thetas'][nSample],
-                    self.fits[satNum][nSource]['powers'][nSample],
-                    fname=fname,archival=self.archival,archivalID=archivalID)
-        else:
-            af.single_plot(self.ddms[satNum][nSource]['ddm'][nSample],
-                    self.ddms[satNum][nSource]['sourcePos'][nSample],
-                    self.ddms[satNum][nSource]['specularPos'][nSample],
-                    self.ddms[satNum][nSource]['observerPos'][nSample],
-                    self.ddms[satNum][nSource]['sourceVel'][nSample],
-                    self.ddms[satNum][nSource]['observerVel'][nSample],
-                    self.ddms[satNum][nSource]['delay'],
-                    self.ddms[satNum][nSource]['doppler'],
-                    self.ddms[satNum][nSource]['tau0'][nSample],
-                    self.ddms[satNum][nSource]['fd0'][nSample],
-                    self.freq,
-                    fitRes,
-                    self.fits[satNum][nSource]['thetas'][nSample],
-                    self.fits[satNum][nSource]['powers'][nSample],
-                    fname=fname)
-
-    def _save_UV(self):
-          for satID in tqdm(range(self.nSats),position=0):
-            satNum=satID+1
-            for nSource in tqdm(self.nSources,position=1,leave=False):
-                np.savez(os.path.join(self.uvDir,
-                                      f'{self.date}-{self.instrument}{str(satNum+1).zfill(2)}-{nSource}source_uv.npz'),
-                        uv=self.recoverUV[satNum][nSource])
-   
-    def _load_UV(self):
-        self.recoverUV = {}
-        for satID in tqdm(range(self.nSats),position=0):
-            satNum=satID+1
-            self.recoverUV.update({satNum : {}})
-            for nSource in tqdm(self.nSources,position=1,leave=False):
-                arch=np.load(os.path.join(self.uvDir,
-                                      f'{self.date}-{self.instrument}{str(satNum+1).zfill(2)}-{nSource}source_uv.npz'))
-                self.recoverUV[satNum].update({nSource : arch['uv']})
-    
-    def _calc_UV(self):
-        self.recoverUV = {}
-        for satID in tqdm(range(self.nSats),position=0):
-            satNum=satID+1
-            self.recoverUV.update({satNum : {}})
-            for nSource in tqdm(self.nSources,position=1,leave=False):
-                uv = np.zeros((self.fits[satNum][nSource]["fitRes"].shape[0],nSource,2))
-                for nSample in tqdm(range(uv.shape[0]),position=2,leave=False):
-                    fitRes = self._build_results(
-                        self.fits[satNum][nSource]["fitRes"][nSample],
-                        self.fits[satNum][nSource]["fitPars"][nSample],
-                    )
-                    theta = fitRes[fitRes["best"]]["mean"] * u.deg
-
-                    ## Asymmetry Stuff
-                    dirs = (self.ddms[satNum][nSource]["specularPos"][nSample]- self.ddms[satNum][nSource]["observerPos"][nSample][np.newaxis, :])
-                    vel = self.ddms[satNum][nSource]["observerVel"][nSample]
-                    dirSigns = (dirs * vel).sum(1)
-                    thetaID = np.argmin(np.abs(self.fits[satNum][nSource]["thetas"][nSample] - theta))
-                    asymm=self.fits[satNum][nSource]["asymm"][nSample, :, thetaID]*dirSigns
-
-                    xAxis, yAxis, zAxis, psis, des, drs = af.coords(
-                        self.ddms[satNum][nSource]["sourcePos"][nSample],
-                        self.ddms[satNum][nSource]["specularPos"][nSample],
-                        self.ddms[satNum][nSource]["observerPos"][nSample],
-                    )
-                    thetas = af.thetaConvert(theta, xAxis, yAxis, zAxis)
-                    thetaIs = af.wavesToImages(thetas, psis)
-                    emitterVels2 = af.convertToSpecular(
-                        self.ddms[satNum][nSource]["sourceVel"][nSample], xAxis, yAxis, zAxis
-                    )
-                    receiverVel2 = af.convertToSpecular(
-                        self.ddms[satNum][nSource]["observerVel"][nSample], xAxis, yAxis, zAxis
-                    )
-
-                    sHats = np.array(
-                        [np.cos(thetaIs).value, np.sin(thetaIs).value, np.zeros(nSource)]
-                    ).T
-                    rHats = np.array(
-                        [np.cos(psis).value, np.zeros(nSource), np.sin(psis).value]
-                    ).T
-                    eHats = np.array(
-                        [-np.cos(psis).value, np.zeros(nSource), np.sin(psis).value]
-                    ).T
-                    cosProd = np.cos(psis) * np.cos(thetaIs)
-                    vels = np.sum(
-                            receiverVel2 * (sHats - rHats * cosProd[:, np.newaxis])
-                            + emitterVels2
-                            * (sHats + eHats * cosProd[:, np.newaxis])
-                            * (drs / des)[:, np.newaxis],
-                            1,
-                        ).value
-                    
-                    dirVel = np.sign(np.mean(vels*asymm))
-
-                    for sourceNum in range(nSource):
-                        uv[nSample,sourceNum,:] = af.toUV(
-                            self.ddms[satNum][nSource]["sourcePos"][nSample],
-                            self.ddms[satNum][nSource]["specularPos"][nSample],
-                            self.ddms[satNum][nSource]["observerPos"][nSample],
-                            theta,
-                            id=sourceNum,
-                        )*dirVel
-                self.recoverUV[satNum].update({nSource : uv})
-
-    def _calc_uv_map(self):
-        lats = np.array(self.archival.latitude) * u.deg
-        lons = np.linspace(0,360,self.archival.longitude.shape[0]+1)*u.deg
-        us = np.zeros((24,lats.shape[0],lons.shape[0]))
-        vs = np.copy(us)
-        counts = np.copy(us)
-
-        for satID in tqdm(range(8), position=0):
-            satNum = satID + 1
-            for nSource in [2, 3, 4]:
-                for nSample in tqdm(
-                    range(self.fits[satNum][nSource]["fitRes"].shape[0]),
-                    position=1,
-                    leave=False,
-                ):
-                    for i in range(nSource):
-                        pos = self.ddms[satNum][nSource]["specularPos"][nSample][i]
-                        loc = EarthLocation(x=pos[0], y=pos[1], z=pos[2])
-                        lat = loc.lat
-                        lon = loc.lon
-                        time = self.ddms[satNum][nSource]["time"][nSample]
-                        timeID = np.argmin(np.abs(time - Time(np.array(self.archival.time))))
-                        lonID = np.argmin(np.abs(np.mod(lon, 360 * u.deg) - lons))
-                        latID = np.argmin(np.abs(lat - lats))
-                        us[timeID, latID, lonID] += self.recoverUV[satNum][nSource][nSample,i,0]
-                        vs[timeID, latID, lonID] += self.recoverUV[satNum][nSource][nSample,i,1]
-                        counts[timeID, latID, lonID] += 1
-        us[:,:,0]+=us[:,:,-1]
-        vs[:,:,0]+=vs[:,:,-1]
-        counts[:,:,0]+=counts[:,:,-1]
-        us=us[:,:,:-1]
-        vs=vs[:,:,:-1]
-        counts=counts[:,:,:-1]
-        lons=lons[:-1]
-        self.uvMap = {"u" : us/counts,
-                      "v" : vs/counts,
-                      "counts" : counts,
-                      "lats" : lats,
-                      "lons" : lons}
-    
-    def _save_uv_map(self):
-        np.savez(os.path.join(self.mapDir,f'{self.date}-{self.instrument}-map.npz'),
-                 u=self.uvMap['u'],
-                 v=self.uvMap['v'],
-                 counts=self.uvMap['counts'],
-                 lats=self.uvMap['lats'],
-                 lons=self.uvMap['lons'])
-
-    def _load_uv_map(self):
-        arch=np.load(os.path.join(self.mapDir,f'{self.date}-{self.instrument}-map.npz'))
-        self.uvMap = {"u" : arch['u'],
-                      "v" : arch['v'],
-                      "counts" : arch['counts'],
-                      "lats" : arch["lats"],
-                      "lons" : arch["lons"]}
-    
-
 class DDMStream:
     mandatoryParams = ['freq',
                                 'prn',
@@ -689,114 +398,227 @@ class DDMStream:
 class TRITON():
     def __init__(self,version = '1.0', rootDir = '.') -> None:
         self.rootDir = rootDir
-        self.freq : u.Quantity = 1.57542*u.GHz
-        self.scale : u.Quantity = 1.0 * u.s / (65536.0 * 16.0)
         self.version = version
         self.streams = []
 
-    def load_data(self, mode='raw',verbose=False,**kwargs) -> None:
+    def load_data(self, mode='raw',source='TRITON',verbose=False,**kwargs) -> None:
+        assert mode in ['raw', 'power']
+        assert source.lower() in ['triton', 'cygnss']
         dateString = self.get_date_string(**kwargs)
         if not dateString:
             raise ValueError('No matching call signature for date format')
-        dataDir = os.path.join(self.rootDir,dateString)
-        if not os.path.exists(dataDir):
-            self.download_data(**kwargs)
-        elif len(os.listdir(dataDir))<2:
-            self.download_data(**kwargs)
-        assert mode in ['raw', 'power']
-        if 'groundTimes' in kwargs:
-            groundTimes = kwargs['groundTimes']
-            if not isinstance(groundTimes,list):
-                groundTimes = [groundTimes]
-        else:
-            groundTimes = np.array([file[7:13] for file in os.listdir(dataDir)])
-            groundTimes = np.unique(groundTimes)
 
-        for groundTime in groundTimes:
-            fileName = [file for file in os.listdir(dataDir) if file[7:13]==str(groundTime) and 'CorDDM' in file and file[-6:-3]==self.version]
-            if len(fileName)>0:
-                fileName = fileName[0]
+        dataDir = os.path.join(self.rootDir,dateString,source.lower())
+        streamDir = os.path.join(self.rootDir,dateString,'streams')
+        if not os.path.exists(streamDir):
+                os.makedirs(streamDir)
+        if source.lower() == 'triton':
+            if not os.path.exists(dataDir):
+                self.download_triton_data(**kwargs)
+            elif len(os.listdir(dataDir))<2:
+                self.download_triton_data(**kwargs)
+        
+            if 'groundTimes' in kwargs:
+                groundTimes = kwargs['groundTimes']
+                if not isinstance(groundTimes,list):
+                    groundTimes = [groundTimes]
             else:
-                continue
-            obsName = fileName[7:28]
-            fileName = os.path.join(dataDir,fileName)
-
-            data = xr.load_dataset(fileName)
-            if mode =='raw':
-                ddms = np.array(data.rawDDM)
+                groundTimes = np.array([file[7:13] for file in os.listdir(dataDir)])
+                groundTimes = np.unique(groundTimes)
+            fileNames = [file for file in os.listdir(dataDir) if file[7:13] in groundTimes and 'CorDDM' in file and file[-6:-3]==self.version]
+        
+        if source.lower() == 'cygnss':
+            dataDir = os.path.join(dataDir,'data')
+                
+            if 'cygCodes' in kwargs:
+                cygCodes = kwargs['cygCodes']
+                if not isinstance(cygCodes,list):
+                    cygCodes = [cygCodes]
+                cygCodes = [code.zfill(2) for code in cygCodes]
             else:
-                ddms = np.array(data.DDMpower)
-
+                cygCodes = [f[3:5] for f in os.listdir(dataDir) if f[-3:]=='.nc']
+                cygCodes = np.unique(cygCodes)
+                
+            fileNames = [file for file in os.listdir(dataDir) if file[3:5] in cygCodes and file[-3:]=='.nc']   
+                
+        for fileName in fileNames:
+            # if len(fileName)>0:
+            #     fileName = fileName[0]
+            # else:
+            #     continue
             
-
-            sampleNumber = np.linspace(0,ddms.shape[0]-1,
-                                    ddms.shape[0],
-                                    dtype=int)[:,np.newaxis]*np.ones(ddms.shape[:2])
-            channelNumber = np.ones(ddms.shape[:2])*np.linspace(0,ddms.shape[1]-1,
-                                                                ddms.shape[1],
-                                                                dtype=int)
-            prn = np.array(data.PRN)
-            times = (np.array(data.GPSSec)*u.s+np.array(data.GPSWeek)*u.week).value
-
-            flags = np.array(data.quality_flags)
-            flags2 = np.array(data.quality_flags_2)
-            useable = (flags == 0)*(flags2 != 0)
-
-            times = Time((np.ones(flags.shape)*times[:,np.newaxis])[useable],format='gps')
-            ddms = np.transpose(ddms[useable], (0, 2, 1))
-            prn = prn[useable]
-            sampleNumber = sampleNumber[useable]
-            channelNumber = channelNumber[useable]
-
-
-            observerPos = np.array([(np.ones(flags.shape)*np.array(data.SVPosX)[:,np.newaxis])[useable],
-                                    (np.ones(flags.shape)*np.array(data.SVPosY)[:,np.newaxis])[useable],
-                                    (np.ones(flags.shape)*np.array(data.SVPosZ)[:,np.newaxis])[useable]]).T*u.m
-            observerVel = np.array([(np.ones(flags.shape)*np.array(data.SVVelX)[:,np.newaxis])[useable],
-                                    (np.ones(flags.shape)*np.array(data.SVVelY)[:,np.newaxis])[useable],
-                                    (np.ones(flags.shape)*np.array(data.SVVelZ)[:,np.newaxis])[useable]]).T*u.m/u.s
-            specularPos = np.array([np.array(data.SPPosX)[useable],
-                                    np.array(data.SPPosY)[useable],
-                                    np.array(data.SPPosZ)[useable]]).T*u.m
-            sourcePos = np.array([np.array(data.GPSPosX)[useable],
-                                    np.array(data.GPSPosY)[useable],
-                                    np.array(data.GPSPosZ)[useable]]).T*u.m
-            sourceVel = np.array([np.array(data.GPSVelX)[useable],
-                                    np.array(data.GPSVelY)[useable],
-                                    np.array(data.GPSVelZ)[useable]]).T*u.m/u.s
-
-
-            metaName : str = os.path.join(dataDir,f'TRITON_{obsName}_metadata_v{self.version}_nc')
-            meta = xr.load_dataset(metaName)
-            spDelay = np.array(meta['SP_CodePhase_shift'])[useable]*self.scale
-            spDoppler = np.array(meta['SP_DopplerFrequency_shift'])[useable]*u.Hz
-
-            delayRes : u.Quantity = data.attrs['codephase resolution (chip)']*self.scale
-            dopplerRes : u.Quantity = data.attrs['Doppler resolution (Hz)']*u.Hz
-            delay  = np.linspace(0, ddms.shape[1] - 1, ddms.shape[1]) * delayRes
-            doppler = np.linspace(0, ddms.shape[2] - 1, ddms.shape[2]) * dopplerRes
-            delay -= delay[65] 
-            doppler -= doppler[33] 
-            streamDir = os.path.join(dataDir,'streams')
-            if not os.path.exists(streamDir):
-                    os.makedirs(streamDir)
+            
+            if source.lower() == 'triton':
+                (freq,prn,ddms,times,
+                 delay,doppler,spDelay,spDoppler,
+                 observerPos,specularPos,sourcePos,
+                 observerVel,sourceVel) = self.parse_triton_data(os.path.join(dataDir,fileName),mode)
+                obsName = 'triton_'+fileName[7:28]
+                
+            if source.lower() == 'cygnss':
+                (freq,prn,ddms,times,
+                 delay,doppler,spDelay,spDoppler,
+                 observerPos,specularPos,sourcePos,
+                 observerVel,sourceVel) = self.parse_cygnss_data(os.path.join(dataDir,fileName))
+                obsName = fileName[:5]
+    
             for usePrn in np.unique(prn):
-                fileName = os.path.join(streamDir,f'{obsName}_{usePrn}_v{self.version}.pkl')
-                if os.path.exists(fileName):
-                    self.streams.append(DDMStream.from_pickle(fileName))
-                    if verbose:
-                        print(f'loaded {fileName}')
-                else:
-                    newStream = DDMStream(self.freq,usePrn, ddms[prn == usePrn], times[prn == usePrn],
-                                                delay, doppler,
-                                                spDelay[prn == usePrn],spDoppler[prn == usePrn],
-                                                observerPos[prn == usePrn],specularPos[prn == usePrn],sourcePos[prn == usePrn],
-                                                observerVel[prn == usePrn],sourceVel[prn == usePrn]
-                                                )
-                    newStream.save(fileName=fileName)
-                    newStream.loadPath = os.path.abspath(fileName)
-                    self.streams.append(newStream)
+                offsetTime = (times[prn == usePrn] - times[prn == usePrn][0]).to_value(u.s)
+                jumps = np.ravel(np.argwhere(np.diff(offsetTime)>60))+1
+                jumps=np.concatenate((np.zeros(1,dtype=int),
+                                      jumps,
+                                      np.ones(1,dtype=int)*offsetTime.shape[0]))
+                
+                for section in range(jumps.shape[0]-1):
+                    cut = slice(jumps[section],jumps[section+1])
+                    if offsetTime[cut].shape[0]>60:
+                        fileName = os.path.join(streamDir,f'{obsName}_{usePrn}_v{self.version}_{section}.pkl')
+                        if os.path.exists(fileName):
+                            self.streams.append(DDMStream.from_pickle(fileName))
+                            if verbose:
+                                print(f'loaded {fileName}')
+                        else:
+                            newStream = DDMStream(freq,usePrn, ddms[prn == usePrn][cut], times[prn == usePrn][cut],
+                                                        delay, doppler,
+                                                        spDelay[prn == usePrn][cut],spDoppler[prn == usePrn][cut],
+                                                        observerPos[prn == usePrn][cut],specularPos[prn == usePrn][cut],sourcePos[prn == usePrn][cut],
+                                                        observerVel[prn == usePrn][cut],sourceVel[prn == usePrn][cut]
+                                                        )
+                            newStream.save(fileName=fileName)
+                            newStream.loadPath = os.path.abspath(fileName)
+                            self.streams.append(newStream)
+    def parse_cygnss_data(self,fileName):
+        freq = 1.57542*u.GHz
+        data = xr.load_dataset(fileName)
+        
+        ddms = np.array(data.brcs)
+        times = np.array(data.ddm_timestamp_utc)
+        prn = np.array(data.prn_code).astype(int)
+        
+        ##Get Errors
+        useable = (np.array(data.quality_flags) == 0) * (np.array(data.quality_flags_2) != 0)
+        
+        times = Time(np.repeat(times[:,np.newaxis],useable.shape[1],1)[useable])
+        prn=prn[useable]
+        ddms=ddms[useable]
+        ##Get Positions and Velocities
+        sourceX = np.array(data.tx_pos_x)
+        sourceY = np.array(data.tx_pos_y)
+        sourceZ = np.array(data.tx_pos_z)
+        sourceVX = np.array(data.tx_vel_x)
+        sourceVY = np.array(data.tx_vel_y)
+        sourceVZ = np.array(data.tx_vel_z)
+        specularX = np.array(data.sp_pos_x)
+        specularY = np.array(data.sp_pos_y)
+        specularZ = np.array(data.sp_pos_z)
+        specularVX = np.array(data.sp_vel_x)
+        specularVY = np.array(data.sp_vel_y)
+        specularVZ = np.array(data.sp_vel_z)
+        observerX = np.array(data.sc_pos_x)
+        observerY = np.array(data.sc_pos_y)
+        observerZ = np.array(data.sc_pos_z)
+        observerVX = np.array(data.sc_vel_x)
+        observerVY = np.array(data.sc_vel_y)
+        observerVZ = np.array(data.sc_vel_z)
+        
+        
+        sourcePos = np.transpose(np.array([sourceX, sourceY, sourceZ]), (1, 2, 0))[useable]*u.m
+        specularPos = np.transpose(np.array([specularX, specularY, specularZ]), (1, 2, 0))[useable]*u.m
+        observerPos = np.array([observerX, observerY, observerZ]).T*u.m
+        observerPos = np.repeat(observerPos[:,np.newaxis,:],useable.shape[1],1)[useable]
+        
+        sourceVel = np.transpose(np.array([sourceVX, sourceVY, sourceVZ]), (1, 2, 0))[useable]*u.m/u.s
+        specularVel = np.transpose(np.array([specularVX, specularVY, specularVZ]), (1, 2, 0))[useable]*u.m/u.s
+        observerVel = np.array([observerVX, observerVY, observerVZ]).T*u.m/u.s
+        observerVel = np.repeat(observerVel[:,np.newaxis,:],useable.shape[1],1)[useable]
+        
+        ## Delay and Doppler
+        nDoppler = data.dims['doppler']
+        nDelay = data.dims['delay']
+        nDDM = data.dims['ddm']
+        chipSize = ((1./1023000.)*u.s).to(u.us)
+        delay = np.linspace(-(nDelay-1)//2,(nDelay-1)//2,nDelay)*float(data.delay_resolution)*chipSize
+        doppler = np.linspace(-(nDoppler-1)//2,(nDoppler-1)//2,nDoppler)*float(data.dopp_resolution)*u.Hz
+        spDelay = np.array(data.brcs_ddm_sp_bin_delay_row)[useable]*float(data.delay_resolution)*chipSize+delay[0]
+        spDoppler = np.array(data.brcs_ddm_sp_bin_dopp_col)[useable]*float(data.dopp_resolution)*u.Hz+doppler[0]
 
+        return(freq,
+               prn,
+               ddms,
+               times,
+               delay,doppler,
+               spDelay,spDoppler,
+               observerPos,specularPos,sourcePos,
+               observerVel,sourceVel)
+        
+    def parse_triton_data(self,fileName,mode):
+        freq = 1.57542*u.GHz
+        scale = 1.0 * u.s / (65536.0 * 16.0)
+        data = xr.load_dataset(fileName)
+        if mode =='raw':
+            ddms = np.array(data.rawDDM)
+        else:
+            ddms = np.array(data.DDMpower)
+
+        
+
+        sampleNumber = np.linspace(0,ddms.shape[0]-1,
+                                ddms.shape[0],
+                                dtype=int)[:,np.newaxis]*np.ones(ddms.shape[:2])
+        channelNumber = np.ones(ddms.shape[:2])*np.linspace(0,ddms.shape[1]-1,
+                                                            ddms.shape[1],
+                                                            dtype=int)
+        prn = np.array(data.PRN)
+        times = (np.array(data.GPSSec)*u.s+np.array(data.GPSWeek)*u.week).value
+
+        flags = np.array(data.quality_flags)
+        flags2 = np.array(data.quality_flags_2)
+        useable = (flags == 0)*(flags2 != 0)
+
+        times = Time((np.ones(flags.shape)*times[:,np.newaxis])[useable],format='gps')
+        ddms = np.transpose(ddms[useable], (0, 2, 1))
+        prn = prn[useable]
+        sampleNumber = sampleNumber[useable]
+        channelNumber = channelNumber[useable]
+
+
+        observerPos = np.array([(np.ones(flags.shape)*np.array(data.SVPosX)[:,np.newaxis])[useable],
+                                (np.ones(flags.shape)*np.array(data.SVPosY)[:,np.newaxis])[useable],
+                                (np.ones(flags.shape)*np.array(data.SVPosZ)[:,np.newaxis])[useable]]).T*u.m
+        observerVel = np.array([(np.ones(flags.shape)*np.array(data.SVVelX)[:,np.newaxis])[useable],
+                                (np.ones(flags.shape)*np.array(data.SVVelY)[:,np.newaxis])[useable],
+                                (np.ones(flags.shape)*np.array(data.SVVelZ)[:,np.newaxis])[useable]]).T*u.m/u.s
+        specularPos = np.array([np.array(data.SPPosX)[useable],
+                                np.array(data.SPPosY)[useable],
+                                np.array(data.SPPosZ)[useable]]).T*u.m
+        sourcePos = np.array([np.array(data.GPSPosX)[useable],
+                                np.array(data.GPSPosY)[useable],
+                                np.array(data.GPSPosZ)[useable]]).T*u.m
+        sourceVel = np.array([np.array(data.GPSVelX)[useable],
+                                np.array(data.GPSVelY)[useable],
+                                np.array(data.GPSVelZ)[useable]]).T*u.m/u.s
+
+
+        metaName = fileName.split('CorDDM')[0]+'metadata'+fileName.split('CorDDM')[1]
+        meta = xr.load_dataset(metaName)
+        spDelay = np.array(meta['SP_CodePhase_shift'])[useable]*scale
+        spDoppler = np.array(meta['SP_DopplerFrequency_shift'])[useable]*u.Hz
+
+        delayRes : u.Quantity = data.attrs['codephase resolution (chip)']*scale
+        dopplerRes : u.Quantity = data.attrs['Doppler resolution (Hz)']*u.Hz
+        delay  = np.linspace(0, ddms.shape[1] - 1, ddms.shape[1]) * delayRes
+        doppler = np.linspace(0, ddms.shape[2] - 1, ddms.shape[2]) * dopplerRes
+        delay -= delay[65] 
+        doppler -= doppler[33]
+        return(freq,
+               prn,
+               ddms,
+               times,
+               delay,doppler,
+               spDelay,spDoppler,
+               observerPos,specularPos,sourcePos,
+               observerVel,sourceVel)
+        
     def get_date_string(self,**kwargs):
         if 'dateString' in kwargs:
             return(kwargs['dateString'])
@@ -828,7 +650,7 @@ class TRITON():
         return(None)
                     
 
-    def download_data(self,**kwargs):
+    def download_triton_data(self,**kwargs):
         if 'user' in kwargs:
             user = kwargs['user']
         else:
@@ -861,7 +683,7 @@ class TRITON():
             for pair in files:
                 br.add_password(pair[0], user, pwd)
                 if 'CorDDM' in pair[1] or 'metadata' in pair[1]:
-                    fname = os.path.join(self.rootDir,dateString,pair[1])
+                    fname = os.path.join(self.rootDir,dateString,'triton',pair[1])
                     if os.path.exists(fname):
                         print(f'File {pair[1]} already exists')
                     else:
