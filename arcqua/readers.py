@@ -54,6 +54,7 @@ class DDMStream:
                                 'obsVel',
                                 'emVel'
                                 ]
+    progressTracks = ['etasFitted','thetasFitted','asymmCalc']
     expensiveParams = ['etas',
                             'etaErrors',
                             'chiArr',
@@ -65,6 +66,9 @@ class DDMStream:
                  obsPos, specPos, emPos,
                  obsVel, emVel
                  ) -> None:
+
+        for attr in self.progressTracks:
+            self.__setattr__(attr,False)
         self.freq = freq
         self.prn = prn
 
@@ -168,6 +172,7 @@ class DDMStream:
         for id in it:
             etaSearch = np.linspace(etaMin << u.s**3,etaMax << u.s**3,nEtas)
             self.etas[id], self.etaErrors[id] = self.single_fit(id,etaSearch,edges,fw,mode=mode,progress=progress+1,pool=pool,cutTHTH=cutTHTH)
+        self.etasFitted = True
             
     def single_fit(self,id,etas,edges,fw=.1,plot=False,mode : str = 'square',progress = -np.inf, pool = None, cutTHTH = False):
         eigs = np.zeros(etas.shape[0])
@@ -264,7 +269,7 @@ class DDMStream:
         return(eig)
 
     def fit_thetas(self, thetas = np.linspace(-90,90,361)[:-1]*u.deg, progress = -np.inf, pool = None):
-        if not hasattr(self,'etas'):
+        if not self.etasFitted:
             self.fit_curvatures(progress = progress, pool = pool)
         xAxis, yAxis, zAxis, psis, des, drs = af.coords(self.emPos,
                                                 self.specPos,
@@ -297,6 +302,7 @@ class DDMStream:
 
             etas = af.calcCurvatures(thetaI, psis, des, drs, obsVel2, emVel2, self.freq)
             self.chiArr[i] = (np.abs(etas-self.etas)**2)/self.etaErrors**2
+        self.thetasFitted = True
 
     def fit_asymm(self,edges = np.linspace(-2500, 2500, 256) * u.Hz,**kwargs):
         if not hasattr(self,"etas"):
@@ -323,7 +329,7 @@ class DDMStream:
             left = W[0,centsX<0]
             right = W[0,centsX>0]
             self.asymm[sampleID]=(np.sum(left)-np.sum(right))/((np.sum(left)+np.sum(right))/2)
-
+        self.asymmCalc = True
 
 
     def plot_chis(self, angles = [], width = 0, format = 'imshow', fname = None):
@@ -389,6 +395,9 @@ class DDMStream:
                 new.__setattr__(parameter,loaded.__getattribute__(parameter))
             elif parameter in kwargs.keys():
                 new.__setattr__(parameter,kwargs[parameter])
+        for parameter in cls.progressTracks:
+            if hasattr(loaded,parameter):
+                new.__setattr__(parameter,loaded.__getattribute__(parameter))
         new.__setattr__('loadPath',os.path.abspath(filename))
         return(new)
 
