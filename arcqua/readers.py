@@ -58,7 +58,7 @@ class DDMStream:
     expensiveParams = ['etas',
                             'etaErrors',
                             'chiArr',
-                            'thetas']
+                            'thetas','asymm']
 
     def __init__(self,freq, prn,
                  ddms, times,
