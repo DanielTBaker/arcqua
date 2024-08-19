@@ -456,7 +456,9 @@ class TRITON():
             # else:
             #     continue
             
-            
+            if not self.check_useable(os.path.join(dataDir,fileName)):
+                continue
+
             if source.lower() == 'triton':
                 (freq,prn,ddms,times,
                  delay,doppler,spDelay,spDoppler,
@@ -496,6 +498,11 @@ class TRITON():
                             newStream.save(fileName=fileName)
                             newStream.loadPath = os.path.abspath(fileName)
                             self.streams.append(newStream)
+
+    def check_useable(self,fileName):
+        data = xr.load_dataset(fileName)
+        useable = (np.array(data.quality_flags) == 0) * (np.array(data.quality_flags_2) != 0)
+        return(np.any(useable))
     def parse_cygnss_data(self,fileName):
         freq = 1.57542*u.GHz
         data = xr.load_dataset(fileName)
@@ -506,7 +513,7 @@ class TRITON():
         
         ##Get Errors
         useable = (np.array(data.quality_flags) == 0) * (np.array(data.quality_flags_2) != 0)
-        
+
         times = Time(np.repeat(times[:,np.newaxis],useable.shape[1],1)[useable])
         prn=prn[useable]
         ddms=ddms[useable]
