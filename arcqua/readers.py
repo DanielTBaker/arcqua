@@ -58,7 +58,7 @@ class DDMStream:
     expensiveParams = ['etas',
                             'etaErrors',
                             'chiArr',
-                            'thetas','asymm']
+                            'thetas','asymm','sols','ECMWF']
 
     def __init__(self,freq, prn,
                  ddms, times,
@@ -332,28 +332,54 @@ class DDMStream:
         self.asymmCalc = True
 
 
-    def plot_chis(self, angles = [], width = 0, format = 'imshow', fname = None):
+    def plot_chis(self, angles = [], width = 0, format = 'imshow', fname = None,double=False,recenter=False):
         if not hasattr(self,'chiArr'):
             self.fit_thetas()
         assert format in ['imshow', 'pcolor']
         plt.figure()
         if format == 'imshow':
             dth = (self.thetas[1]-self.thetas[0]).value/2
-            th0 = self.thetas[0].value
-            th1 = self.thetas[-1].value
+            if recenter:
+                centeredThetas = np.mod(self.thetas,180*u.deg)-180*u.deg
+                th0 = centeredThetas.min().value
+                th1 = centeredThetas.max().value
+            else:
+                th0 = self.thetas[0].value
+                th1 = self.thetas[-1].value
             mx = 10
             mn = 1
             chiArr2 = np.zeros((self.chiArr.shape[0],int(np.round(self.offsetTime.max())+1)))*np.nan
             for i1,i2 in enumerate(self.offsetTime):
                 chiArr2[:,int(np.round(i2))]=self.chiArr[:,i1]
+            if recenter:
+                chiArr2 = np.roll(chiArr2,-np.argmin(centeredThetas),axis=0)
+            extent = [self.offsetTime[0]-.5,self.offsetTime[-1]+.5,th0-dth,th1+dth]
+            if double:
+                chiArr2 = np.tile(chiArr2,(2,1))
+                extent[-1]+=180
             plt.imshow(chiArr2,origin='lower',
                     aspect='auto',
-                    extent=[self.offsetTime[0]-.5,self.offsetTime[-1]+.5,th0-dth,th1+dth],norm=colors.LogNorm(vmin=mn,vmax=mx),cmap='magma',interpolation='None')
+                    extent=extent,norm=colors.LogNorm(vmin=mn,vmax=mx),cmap='magma',interpolation='None')
             plt.xlim((-.5,self.offsetTime.max()+.5))
         
         if format == 'pcolor':
-            x,y = np.meshgrid(self.offsetTime,self.thetas.value)
-            plt.pcolormesh(x,y,self.chiArr,norm=colors.LogNorm(),cmap='magma')
+            if recenter:
+                centeredThetas = np.mod(self.thetas,180*u.deg)-180*u.deg
+                rollID = -np.argmin(centeredThetas)
+                centeredThetas = np.roll(centeredThetas,rollID)
+                if double:
+                    x,y = np.meshgrid(self.offsetTime,np.concatentate((centeredThetas,centeredThetas+180*u.deg)).value)
+                    plt.pcolormesh(x,y,np.tile(np.roll(self.chiArr,rollID,axis=0),(2,1)),norm=colors.LogNorm(),cmap='magma')
+                else:
+                    x,y = np.meshgrid(self.offsetTime,centeredThetas.value)
+                    plt.pcolormesh(x,y,self.np.roll(self.chiArr,rollID,axis=0),norm=colors.LogNorm(),cmap='magma')
+            else:
+                if double:
+                    x,y = np.meshgrid(self.offsetTime,np.concatentate((self.thetas,self.thetas+180*u.deg)).value)
+                    plt.pcolormesh(x,y,np.tile(self.chiArr,(2,1)),norm=colors.LogNorm(),cmap='magma')
+                else:
+                    x,y = np.meshgrid(self.offsetTime,self.thetas.value)
+                    plt.pcolormesh(x,y,self.chiArr,norm=colors.LogNorm(),cmap='magma')
         
         for angle in angles:
             for offset in [-width,width]:
@@ -364,6 +390,55 @@ class DDMStream:
         plt.tight_layout()
         if fname:
             plt.savefig(fname)
+
+    def get_sols(self,**kwargs):
+        if not hasattr(self,'chiArr'):
+            self.fit_thetas(**kwargs)
+        self.sols = np.zeros((2,self.chiArr.shape[1]))*np.nan*u.deg
+        for i in range(self.sols.shape[1]):
+            x=np.copy(self.thetas)
+            y=np.copy(self.chiArr[:,i])
+            idMax = np.argmax(y)
+            x[idMax:]-=180*u.deg
+            x = np.roll(x,-idMax)
+            y = np.roll(y,-idMax)
+            s1 = x[:x.shape[0]//2][np.argmin(y[:x.shape[0]//2])]
+            s2 = x[x.shape[0]//2:][np.argmin(y[x.shape[0]//2:])]
+            if s1 != x[:x.shape[0]//2][0] and s1 != x[:x.shape[0]//2][-1]:
+                self.sols[0,i] = s1
+            if s2 != x[x.shape[0]//2:][0] and s2 != x[x.shape[0]//2:][-1]:
+                self.sols[1,i] = s2
+        self.sols = np.mod(self.sols-np.nanmedian(self.sols,1)[:,np.newaxis]+90*u.deg,180*u.deg)+np.nanmedian(self.sols,1)[:,np.newaxis]-90*u.deg
+    
+    def get_ECMWF_index(self,windTimes,windLats,windLons):
+        specularLoc = EarthLocation(x=self.specPos[:,0],
+                                y=self.specPos[:,1],
+                                z=self.specPos[:,2])
+        deltaT = np.abs(self.times[:,np.newaxis]-windTimes[np.newaxis,:])
+        closestT = np.argmin(deltaT,1)
+        
+        deltaLon = np.abs(specularLoc.lon[:,np.newaxis] - windLons[np.newaxis,:])
+        closestLon = np.argmin(deltaLon,1)
+        
+        deltaLat = np.abs(specularLoc.lat[:,np.newaxis] - windLats[np.newaxis,:])
+        closestLat = np.argmin(deltaLat,1)
+        return(closestT,closestLat,closestLon)
+    
+    def load_ECMWF(self,windData):
+        windTimes = Time(windData.time)
+        if windTimes.min()>self.times.min() or windTimes.max()<self.times.max():
+            raise ValueError('Track is not fully covered by model time range')
+        windLons = np.array(windData.longitude)*u.deg
+        windLats = np.array(windData.latitude)*u.deg
+        
+        closestT,closestLat,closestLon = self.get_ECMWF_index(windTimes,windLats,windLons)
+        self.ECMWF = {}
+        self.ECMWF.update({'windU' : np.array(windData.u10)[closestT,closestLat,closestLon]*u.m/u.s})
+        self.ECMWF.update({'windV' : np.array(windData.v10)[closestT,closestLat,closestLon]*u.m/u.s})
+        self.ECMWF.update({'meanWaveDirection' : np.array(windData.mwd)[closestT,closestLat,closestLon]*u.deg})
+        self.ECMWF.update({'meanSwellDirection' : np.array(windData.mdts)[closestT,closestLat,closestLon]*u.deg})
+        self.ECMWF.update({'meanWindWaveDirection' : np.array(windData.mdww)[closestT,closestLat,closestLon]*u.deg})
+
 
     def save(self,fileName=None):
         if fileName:
