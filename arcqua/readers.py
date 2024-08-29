@@ -67,60 +67,110 @@ class DDMStream:
                  obsVel, emVel
                  ) -> None:
 
+        ## Progress tracks for things that could take awhile (probably remove later)
         for attr in self.progressTracks:
             self.__setattr__(attr,False)
+        
+        ## Observing frequency
         self.freq = freq
+        ## GPS code
         self.prn = prn
 
+        ## Array of ddms (time,tau,fd)
         self.ddms = ddms
+
+        ##Observation times
         self.times = times
 
+        ## Time offset from start
         self.offsetTime = (self.times-self.times[0]).to_value(u.s)
 
+        ##Delay and doppler axes for DDMs
         self.delay = delay
         self.doppler = doppler
+
+        ## Position of each specular point in DDM
         self.specularDelay = specularDelay
         self.specularDoppler = specularDoppler
 
+        ## Global positions of obs(erver), spec(ular), and em(itter)
         self.obsPos = obsPos
         self.specPos = specPos
         self.emPos = emPos
 
+        ## Global velocities of obs(erver), and em(itter)
         self.obsVel = obsVel
         self.emVel = emVel
 
+        ## Number of samples in track
         self.nSamples = self.ddms.shape[0]
         
+        ## Check for a specular point passing
         self._find_crossing()
 
     def _find_crossing(self):
+        """
+        Checks for a extrema (probably a minima) in the distance between
+        the satelite and specular point by looking for sign changes in the
+        local x component of the satelite velocity.
+        """
+        ## Get local coords
         xAxis, yAxis, zAxis, psis, des, drs = af.coords(self.emPos,
                                                 self.specPos,
                                                 self.obsPos)
+        ## Get local x component of observer velocity
         xVel = np.sum(self.obsVel*xAxis,1)
+        ## If there is a sign change of the velocity, then there was a crossing
         if xVel.min()<0 and xVel.max()>0:
             self.crossingID = np.argmin(np.abs(xVel))
 
     def plot_sample(self,id, fname = None):
+        """
+        Plot a single DDM with the best fit curvature (where available)
+
+        Parameters
+        id : int
+            Sample id of DDM to plot
+        fname : str
+            Filename to save DDM plot (plot is only saved if fname is given)
+        """
         plt.figure()
+        ## Plot DDM
         extent = thth.ext_find(self.doppler,self.delay.to(u.us))
         plt.imshow(self.ddms[id],
                    origin='lower',aspect='auto',
                    extent=extent,
                    cmap='magma')
         plt.plot(self.specularDoppler[id],self.specularDelay[id].to(u.us),'g.')
+        ## Include best fit arc if given
         if hasattr(self, 'etas'):
             plt.plot(self.doppler,
                      (self.etas[id]*(self.doppler-self.specularDoppler[id])**2 + self.specularDelay[id]).to(u.us))
             plt.ylim(extent[2:])
+        ## Save file if name given
         if fname:
             plt.savefig(fname)
 
     def animate_range(self,idMin = 0, idMax = np.inf, fps=10,fname = None):
+        """
+        Animate a sequence of DDMs (with best fit arcs where available)
+
+        Parameters
+        idMin : int
+            Starting DDM id for animation
+        idMax : int
+            Final DDM id for animation (capped at number of samples)
+        fps : int
+            Frames Per Second of animation
+        fname : str
+            Filename to save DDM plot (animation is only saved if fname is given)
+        """
+        ## Put ids into valid range
         animMin = max(idMin,0)
         animMax = min(idMax,self.nSamples-1)
-        i=animMin
 
+        ## Generate first frame
+        i=animMin
         extent = thth.ext_find(self.doppler,self.delay.to(u.us))
         fig = plt.figure( figsize=(4,4))
         ax = plt.subplot(111)
@@ -135,8 +185,9 @@ class DDMStream:
                      (self.etas[i]*(self.doppler-self.specularDoppler[i])**2 + self.specularDelay[i]).to_value(u.us),'g')
             ax.set_ylim(extent[2:])
 
-
+        ## Love me a function in a function (This cannot be the best way, but it works)
         def animate_func(i):
+            ## genetate ith frame of animation
             id = i+animMin
             im.set_array(self.ddms[id])
             im.set_clim(self.ddms[id].min(),self.ddms[id].max())     
@@ -147,12 +198,14 @@ class DDMStream:
                       self.specularDelay[id]).to_value(u.us))
             return
 
+        ## Generate animation
         anim = animation.FuncAnimation(
                                     fig, 
                                     animate_func, 
                                     frames = animMax-animMin+1,
                                     interval = 1000 / fps, # in ms
                                     )
+        ## Save animation if fname is given, or else just display it
         if fname:
             anim.save(fname,fps=fps)
             plt.close(fig)
@@ -163,12 +216,37 @@ class DDMStream:
                        etaMin = 3e-13*u.s**3, etaMax = 2.0e-12*u.s**3,
                        nEtas = 200, edges = np.linspace(-2500, 2500, 256) * u.Hz,
                        mode='square',progress = -np.inf, pool = None, cutTHTH = False,**kwargs):
+        """
+        Fit a curvature to each DDM
+        Parameters
+        fw : Float
+            Fractional fitting width around peak in eigenvalues
+        etaMin : Quantity
+            Lowest curvature to search (s^3)
+        etaMax : Quantity
+            Highest curvature to search (s^3)
+        nEtas : Int
+            Number of curvatures to evaluate
+        edges : Quanity Array
+            edges array used by theta-theta (See scintools for documentation)
+        mode : Str
+            Eigenvalue evaluation mode for theta-theta (see scintools for documentation)
+        progress : Int
+            Depth of progress bar in progress bar stack (no bar if <0)
+        pool : WorkerPool
+            pool of workds for parallelization of eigenvalue calculation
+        """
+        ## Arrays to hold curvatures and their errors
         self.etas = np.zeros(self.nSamples)*u.s**3
         self.etaErrors = np.zeros(self.nSamples)*u.s**3
+
+        ## prepare iterator
         if progress <0:
             it = range(self.nSamples)
         else:
+            ## Use tqdm progress bar
             it = tqdm(range(self.nSamples),position=progress,leave=False)
+        ## Loop over all samples for theta-theta eigenvalue search
         for id in it:
             etaSearch = np.linspace(etaMin << u.s**3,etaMax << u.s**3,nEtas)
             self.etas[id], self.etaErrors[id] = self.single_fit(id,etaSearch,edges,fw,mode=mode,progress=progress+1,pool=pool,cutTHTH=cutTHTH)
@@ -392,22 +470,30 @@ class DDMStream:
             plt.savefig(fname)
 
     def get_sols(self,**kwargs):
+        ## If chiarr doesn't exist, generate it
         if not hasattr(self,'chiArr'):
             self.fit_thetas(**kwargs)
+        ## Prepare array to hold two solutions (mirrored about effective velocity)
         self.sols = np.zeros((2,self.chiArr.shape[1]))*np.nan*u.deg
+        ## Loop over all DDMs
         for i in range(self.sols.shape[1]):
             x=np.copy(self.thetas)
             y=np.copy(self.chiArr[:,i])
+            ## Find peak of chisquare (there should always be one peak at 90 degrees from effective velocity where eta=inf)
             idMax = np.argmax(y)
+            ## shift to put peak at the start
             x[idMax:]-=180*u.deg
             x = np.roll(x,-idMax)
             y = np.roll(y,-idMax)
+            ## find minima in both halves
             s1 = x[:x.shape[0]//2][np.argmin(y[:x.shape[0]//2])]
             s2 = x[x.shape[0]//2:][np.argmin(y[x.shape[0]//2:])]
+            ## Record solutions that aren't at the extreme edges
             if s1 != x[:x.shape[0]//2][0] and s1 != x[:x.shape[0]//2][-1]:
                 self.sols[0,i] = s1
             if s2 != x[x.shape[0]//2:][0] and s2 != x[x.shape[0]//2:][-1]:
                 self.sols[1,i] = s2
+        ## Prevent phase wrapping of solution!
         self.sols = np.mod(self.sols-np.nanmedian(self.sols,1)[:,np.newaxis]+90*u.deg,180*u.deg)+np.nanmedian(self.sols,1)[:,np.newaxis]-90*u.deg
     
     def get_ECMWF_index(self,windTimes,windLats,windLons):
