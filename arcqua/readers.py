@@ -414,23 +414,15 @@ class DDMStream:
         specularLoc = EarthLocation(x=self.specPos[:,0],
                                 y=self.specPos[:,1],
                                 z=self.specPos[:,2])
-        deltaT = np.abs(self.times[:,np.newaxis]-windTimes[np.newaxis,:])
-        closestT = np.argmin(deltaT,1)
-        
-        deltaLon = np.abs(specularLoc.lon[:,np.newaxis] - windLons[np.newaxis,:])
-        closestLon = np.argmin(deltaLon,1)
-        
-        deltaLat = np.abs(specularLoc.lat[:,np.newaxis] - windLats[np.newaxis,:])
-        closestLat = np.argmin(deltaLat,1)
+        closestT=abs(self.times[:, None] - windTimes[None, :]).argmin(axis=-1)
+        closestLon=abs(np.mod(specularLoc.lon,360*u.deg)[:, None] - windLons[None, :]).argmin(axis=-1)
+        closestLat=abs(specularLoc.lat[:, None] - windLats[None, :]).argmin(axis=-1)
 
         halfLon = np.linspace(0,359.5,720)*u.deg
         halfLat =  np.linspace(90,-90,361)*u.deg
 
-        deltaLon = np.abs(specularLoc.lon[:,np.newaxis] - halfLon[np.newaxis,:])
-        closestHalfLon = np.argmin(deltaLon,1)
-        
-        deltaLat = np.abs(specularLoc.lat[:,np.newaxis] - halfLat[np.newaxis,:])
-        closestHalfLat = np.argmin(deltaLat,1)
+        closestHalfLon=abs(np.mod(specularLoc.lon,360*u.deg)[:, None] - halfLon[None, :]).argmin(axis=-1)
+        closestHalfLat=abs(specularLoc.lat[:, None] - halfLat[None, :]).argmin(axis=-1)
         return(closestT,closestLat,closestLon,closestHalfLat,closestHalfLon)
     
     def load_ECMWF(self,windData):
