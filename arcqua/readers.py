@@ -422,7 +422,16 @@ class DDMStream:
         
         deltaLat = np.abs(specularLoc.lat[:,np.newaxis] - windLats[np.newaxis,:])
         closestLat = np.argmin(deltaLat,1)
-        return(closestT,closestLat,closestLon)
+
+        halfLon = np.linspace(0,359.5,720)*u.deg
+        halfLat =  np.linspace(90,-90,361)*u.deg
+
+        deltaLon = np.abs(specularLoc.lon[:,np.newaxis] - halfLon[np.newaxis,:])
+        closestHalfLon = np.argmin(deltaLon,1)
+        
+        deltaLat = np.abs(specularLoc.lat[:,np.newaxis] - halfLat[np.newaxis,:])
+        closestHalfLat = np.argmin(deltaLat,1)
+        return(closestT,closestLat,closestLon,closestHalfLat,closestHalfLon)
     
     def load_ECMWF(self,windData):
         windTimes = Time(windData.time)
@@ -430,14 +439,14 @@ class DDMStream:
             raise ValueError('Track is not fully covered by model time range')
         windLons = np.array(windData.longitude)*u.deg
         windLats = np.array(windData.latitude)*u.deg
-        
-        closestT,closestLat,closestLon = self.get_ECMWF_index(windTimes,windLats,windLons)
+
+        closestT,closestLat,closestLon,closestHalfLat,closestHalfLon = self.get_ECMWF_index(windTimes,windLats,windLons)
         self.ECMWF = {}
         self.ECMWF.update({'windU' : np.array(windData.u10)[closestT,closestLat,closestLon]*u.m/u.s})
         self.ECMWF.update({'windV' : np.array(windData.v10)[closestT,closestLat,closestLon]*u.m/u.s})
-        self.ECMWF.update({'meanWaveDirection' : np.array(windData.mwd)[closestT,closestLat,closestLon]*u.deg})
-        self.ECMWF.update({'meanSwellDirection' : np.array(windData.mdts)[closestT,closestLat,closestLon]*u.deg})
-        self.ECMWF.update({'meanWindWaveDirection' : np.array(windData.mdww)[closestT,closestLat,closestLon]*u.deg})
+        self.ECMWF.update({'meanWaveDirection' : np.array(windData.mwd)[closestT,closestHalfLat,closestHalfLon]*u.deg})
+        self.ECMWF.update({'meanSwellDirection' : np.array(windData.mdts)[closestT,closestHalfLat,closestHalfLon]*u.deg})
+        self.ECMWF.update({'meanWindWaveDirection' : np.array(windData.mdww)[closestT,closestHalfLat,closestHalfLon]*u.deg})
 
 
     def save(self,fileName=None):
