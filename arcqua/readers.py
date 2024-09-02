@@ -645,9 +645,9 @@ class TRITON():
                 for section in range(jumps.shape[0]-1):
                     cut = slice(jumps[section],jumps[section+1])
                     if offsetTime[cut].shape[0]>60:
-                        fileName = os.path.join(streamDir,f'{obsName}_{usePrn}_v{self.version}_{section}.pkl')
+                        fileNameStream = os.path.join(streamDir,f'{obsName}_{usePrn}_v{self.version}_{section}.pkl')
                         if os.path.exists(fileName):
-                            self.streams.append(DDMStream.from_pickle(fileName))
+                            self.streams.append(DDMStream.from_pickle(fileNameStream))
                             if verbose:
                                 print(f'loaded {fileName}')
                         else:
@@ -657,8 +657,8 @@ class TRITON():
                                                         observerPos[prn == usePrn][cut],specularPos[prn == usePrn][cut],sourcePos[prn == usePrn][cut],
                                                         observerVel[prn == usePrn][cut],sourceVel[prn == usePrn][cut]
                                                         )
-                            newStream.save(fileName=fileName)
-                            newStream.loadPath = os.path.abspath(fileName)
+                            newStream.save(fileName=fileNameStream)
+                            newStream.loadPath = os.path.abspath(fileNameStream)
                             self.streams.append(newStream)
             if clean:
                 os.remove(os.path.join(dataDir,fileName))
