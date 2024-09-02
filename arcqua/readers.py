@@ -572,7 +572,7 @@ class TRITON():
         self.version = version
         self.streams = []
 
-    def load_data(self, mode='raw',source='TRITON',verbose=False,**kwargs) -> None:
+    def load_data(self, mode='raw',source='TRITON',verbose=False,clean=False,**kwargs) -> None:
         assert mode in ['raw', 'power']
         assert source.lower() in ['triton', 'cygnss']
         dateString = self.get_date_string(**kwargs)
@@ -660,7 +660,8 @@ class TRITON():
                             newStream.save(fileName=fileName)
                             newStream.loadPath = os.path.abspath(fileName)
                             self.streams.append(newStream)
-
+            if clean:
+                os.remove(os.path.join(dataDir,fileName))
     def check_useable(self,fileName):
         data = xr.load_dataset(fileName)
         useable = (np.array(data.quality_flags) == 0) * (np.array(data.quality_flags_2) != 0)
