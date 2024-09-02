@@ -39,12 +39,14 @@ def download_archival_velocities(day,month,year,outputDir='.'):
         },
         fname)
     
-def download_CYGNNS_data(day,month,year,outputDir='.'):
+def download_CYGNNS_data(day,month,year,outputDir='.', verbose=False):
     tStart=Time(f'{year}-{month}-{day}T00:00:00.000')
     tEnd=tStart+1*u.day
     outputDir = os.path.join(outputDir,'data')
     prefix = f'podaac-data-downloader -c CYGNSS_L1_V3.1 -d {outputDir} --start-date '
     cmd = prefix + tStart.value[:-4]+'Z --end-date '+tEnd.value[:-4]+'Z -e \"\"'
+    if verbose:
+        cmd += ' --verbose'
     os.system(cmd)
 
 def full_download(day,month,year,outputDir='.'):
