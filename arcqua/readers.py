@@ -779,7 +779,7 @@ class TRITON():
 
 
         metaName = fileName.split('CorDDM')[0]+'metadata'+fileName.split('CorDDM')[1]
-        meta = xr.load_dataset(metaName)
+        meta = xr.load_dataset(metaName,engine = 'netcdf4')
         spDelay = np.array(meta['SP_CodePhase_shift'])[useable]*scale
         spDoppler = np.array(meta['SP_DopplerFrequency_shift'])[useable]*u.Hz
 
