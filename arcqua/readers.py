@@ -610,16 +610,21 @@ class TRITON():
                 cygCodes = [f[3:5] for f in os.listdir(dataDir) if f[-3:]=='.nc']
                 cygCodes = np.unique(cygCodes)
                 
-            fileNames = [file for file in os.listdir(dataDir) if file[3:5] in cygCodes and file[-3:]=='.nc']   
+            fileNames = [file for file in os.listdir(dataDir) if file[3:5] in cygCodes and file[-3:]=='.nc'] 
+            if verbose:
+                print(fileNames)
                 
         for fileName in fileNames:
             # if len(fileName)>0:
             #     fileName = fileName[0]
             # else:
             #     continue
-            
+            if verbose:
+                print('Usable Check')
             if not self.check_useable(os.path.join(dataDir,fileName)):
                 continue
+            if verbose:
+                print('Passed')
 
             if source.lower() == 'triton':
                 (freq,prn,ddms,times,
@@ -634,16 +639,20 @@ class TRITON():
                  observerPos,specularPos,sourcePos,
                  observerVel,sourceVel) = self.parse_cygnss_data(os.path.join(dataDir,fileName))
                 obsName = fileName[:5]
-    
+            if verbose:
+                print(np.unique(prn))
             for usePrn in np.unique(prn):
                 offsetTime = (times[prn == usePrn] - times[prn == usePrn][0]).to_value(u.s)
                 jumps = np.ravel(np.argwhere(np.diff(offsetTime)>60))+1
                 jumps=np.concatenate((np.zeros(1,dtype=int),
                                       jumps,
                                       np.ones(1,dtype=int)*offsetTime.shape[0]))
-                
+                if verbose:
+                    print(jumps)
                 for section in range(jumps.shape[0]-1):
                     cut = slice(jumps[section],jumps[section+1])
+                    if verbose:
+                        print(offsetTime[cut].shape[0])
                     if offsetTime[cut].shape[0]>60:
                         fileNameStream = os.path.join(streamDir,f'{obsName}_{usePrn}_v{self.version}_{section}.pkl')
                         if os.path.exists(fileName):
@@ -663,12 +672,12 @@ class TRITON():
             if clean:
                 os.remove(os.path.join(dataDir,fileName))
     def check_useable(self,fileName):
-        data = xr.load_dataset(fileName)
+        data = xr.load_dataset(fileName,engine='netcdf4')
         useable = (np.array(data.quality_flags) == 0) * (np.array(data.quality_flags_2) != 0)
         return(np.any(useable))
     def parse_cygnss_data(self,fileName):
         freq = 1.57542*u.GHz
-        data = xr.load_dataset(fileName)
+        data = xr.load_dataset(fileName,engine='netcdf4')
         
         ddms = np.array(data.brcs)
         times = np.array(data.ddm_timestamp_utc)
