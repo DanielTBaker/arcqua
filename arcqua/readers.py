@@ -240,6 +240,11 @@ class DDMStream:
         self.etas = np.zeros(self.nSamples)*u.s**3
         self.etaErrors = np.zeros(self.nSamples)*u.s**3
 
+        l0 = np.log10(etaMin.to_value(u.s**3))
+        l1 = np.log10(etaMax.to_value(u.s**3))
+        neta = int(1 + (l1-l0)/np.log10(1+fw/10))
+        etaSearch = np.logspace(l0,l1,neta)*u.s**3
+
         ## prepare iterator
         if progress <0:
             it = range(self.nSamples)
@@ -248,7 +253,6 @@ class DDMStream:
             it = tqdm(range(self.nSamples),position=progress,leave=False)
         ## Loop over all samples for theta-theta eigenvalue search
         for id in it:
-            etaSearch = np.linspace(etaMin << u.s**3,etaMax << u.s**3,nEtas)
             self.etas[id], self.etaErrors[id] = self.single_fit(id,etaSearch,edges,fw,mode=mode,progress=progress+1,pool=pool,cutTHTH=cutTHTH)
         self.etasFitted = True
             
@@ -291,7 +295,11 @@ class DDMStream:
                 A = (eigs_fit[-1] - C) / ((etas_fit[-1].value - x0) ** 2)
             else:
                 A = (eigs_fit[0] - C) / ((etas_fit[0].value - x0) ** 2)
-
+            if plot:
+                plt.figure()
+                plt.plot(etas,eigs,'.')
+                plt.xlabel(r'$\eta~\left(\rm{s}^3\right)$')
+                plt.ylabel('Peak Eigenvalue')
             # Fit parabola around peak
             popt, pcov = curve_fit(
                 thth.chi_par, etas_fit.value, eigs_fit, p0=np.array([A, x0, C])
@@ -308,11 +316,7 @@ class DDMStream:
                 / u.mHz**2
             )
             if plot:
-                plt.figure()
-                plt.plot(etas,eigs,'.')
                 plt.plot(etas_fit,thth.chi_par(etas_fit.value, *popt))
-                plt.xlabel(r'$\eta~\left(\rm{s}^3\right)$')
-                plt.ylabel('Peak Eigenvalue')
             return(etaFit,etaSig)
         except Exception as e:
             return(np.nan,np.nan)
