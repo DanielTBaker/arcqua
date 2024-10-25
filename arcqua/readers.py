@@ -18,6 +18,7 @@ from astropy.coordinates import EarthLocation
 import matplotlib.animation as animation
 import matplotlib.colors as colors
 import matplotlib.pyplot as plt
+from matplotlib.colors import LogNorm
 
 ##Downloading Data
 import mechanize
@@ -58,7 +59,7 @@ class DDMStream:
     expensiveParams = ['etas',
                             'etaErrors',
                             'chiArr',
-                            'thetas','asymm','sols','ECMWF']
+                            'thetas','asymm','sols','ECMWF','quickEtas']
 
     def __init__(self,freq, prn,
                  ddms, times,
@@ -212,10 +213,44 @@ class DDMStream:
         else:
             plt.show()
 
-    def fit_curvatures(self, fw = .1,
-                       etaMin = 3e-13*u.s**3, etaMax = 2.0e-12*u.s**3,
-                       nEtas = 200, edges = np.linspace(-2500, 2500, 256) * u.Hz,
-                       mode='square',progress = -np.inf, pool = None, cutTHTH = False,**kwargs):
+    def quick_curvatures(self,plot=False):
+        deltaDelay = self.delay[1]-self.delay[0]
+        specID = np.floor((self.specularDelay - (self.delay[0]-deltaDelay/2))/deltaDelay).astype(int)
+        lineID = (specID + self.delay.shape[0]-1)//2
+        # lineID = np.ones(stream.nSamples,dtype=int)*(stream.delay.shape[0]-1)
+        new = np.copy(self.ddms[np.linspace(0,self.nSamples-1,self.nSamples,dtype=int),lineID,:])
+        if plot:
+            plt.figure(figsize=(8,16))
+            plt.subplot(121)
+            plt.imshow(new,origin='lower',aspect='auto',extent=thth.ext_find(self.doppler,self.offsetTime*u.s),norm=LogNorm(),interpolation='nearest')
+        def gau_fit(x,A1,A2,O,B,C):
+            return(A1*np.exp(-np.power((x-O)/B,2)/2)+A2*np.exp(-np.power((x+O)/B,2)/2)+C)
+        
+        fit = new*0
+        dtau = self.delay[lineID] - self.specularDelay
+        dfd = np.zeros(self.nSamples)*u.Hz
+        for i in range(new.shape[0]):
+            if i == 0:
+                Cinit = np.median(self.ddms[i])
+                Ainit = new[i].max()-Cinit
+                Oinit = np.abs(self.doppler[np.argmax(new[i])].value.max()-self.specularDoppler[i].value)
+                Binit = Oinit
+                p0=[Ainit,Ainit,Oinit,Binit,Cinit]
+            else:
+                p0 = popt
+            
+            popt,pcov=curve_fit(gau_fit,self.doppler.value-self.specularDoppler[i].value,new[i],p0=p0,bounds=[[0,0,0,0,0],[np.inf,np.inf,np.inf,np.inf,np.inf]],max_nfev=10000)
+            fit[i] = gau_fit(self.doppler.value,*popt)
+            dfd[i] = popt[2]*u.Hz
+        if plot:
+            plt.subplot(122)
+            plt.imshow(fit,origin='lower',aspect='auto',extent=thth.ext_find(self.doppler,self.offsetTime*u.s),norm=LogNorm(),interpolation='nearest')
+        
+        self.quickEtas = (dtau/dfd**2).to(u.s**3)
+
+    def fit_curvatures(self, fw = .1,lowFraction = .1, highFraction = 10.,
+                        edges = None,
+                       mode='norm',progress = -np.inf, pool = None, cutTHTH = False,**kwargs):
         """
         Fit a curvature to each DDM
         Parameters
@@ -240,10 +275,12 @@ class DDMStream:
         self.etas = np.zeros(self.nSamples)*u.s**3
         self.etaErrors = np.zeros(self.nSamples)*u.s**3
 
-        l0 = np.log10(etaMin.to_value(u.s**3))
-        l1 = np.log10(etaMax.to_value(u.s**3))
-        neta = int(1 + (l1-l0)/np.log10(1+fw/10))
-        etaSearch = np.logspace(l0,l1,neta)*u.s**3
+        # l0 = np.log10(etaMin.to_value(u.s**3))
+        # l1 = np.log10(etaMax.to_value(u.s**3))
+        # neta = int(1 + (l1-l0)/np.log10(1+fw/10))
+        # etaSearch = np.logspace(l0,l1,neta)*u.s**3
+        if not hasattr(self,'quickEtas'):
+            self.quick_curvatures()
 
         ## prepare iterator
         if progress <0:
@@ -253,10 +290,31 @@ class DDMStream:
             it = tqdm(range(self.nSamples),position=progress,leave=False)
         ## Loop over all samples for theta-theta eigenvalue search
         for id in it:
-            self.etas[id], self.etaErrors[id] = self.single_fit(id,etaSearch,edges,fw,mode=mode,progress=progress+1,pool=pool,cutTHTH=cutTHTH)
+            l0 = np.log10(lowFraction*self.quickEtas[id].to_value(u.s**3))
+            l1 = np.log10(highFraction*self.quickEtas[id].to_value(u.s**3))
+            neta = int(1 + (l1-l0)/np.log10(1+fw/10))
+            etaSearch = np.logspace(l0,l1,neta)*u.s**3
+            self.etas[id], self.etaErrors[id] = self.single_fit(id,etaSearch,edges,fw,widthEta = etaSearch.max(),mode=mode,progress=progress+1,pool=pool,cutTHTH=cutTHTH)
         self.etasFitted = True
             
-    def single_fit(self,id,etas,edges,fw=.1,plot=False,mode : str = 'square',progress = -np.inf, pool = None, cutTHTH = False):
+    def single_fit(self,id,etas,edges=None,fw=.1,widthEta = None,plot=False,mode : str = 'norm',progress = -np.inf, pool = None, cutTHTH = False):
+        if widthEta != None:
+            maxWid = min(self.doppler[-1]-self.specularDoppler[id],
+                        self.specularDoppler[id]-self.doppler[0],
+                        np.sqrt((self.delay[-1]-self.specularDelay[id])/(widthEta)).to(u.Hz)
+                    )
+        elif hasattr(self,"quickEtas"):
+            maxWid = min(self.doppler[-1]-self.specularDoppler[id],
+                        self.specularDoppler[id]-self.doppler[0],
+                        np.sqrt((self.delay[-1]-self.specularDelay[id])/(etas.min())).to(u.Hz)
+                    )
+        else:
+            maxWid = min(self.doppler[-1]-self.specularDoppler[id],
+                        self.specularDoppler[id]-self.doppler[0],
+                        np.sqrt((self.delay[-1]-self.specularDelay[id])/(etas.mean())).to(u.Hz)
+                    )
+        if edges == None:
+            edges = np.linspace(-1,1,256)*maxWid
         eigs = np.zeros(etas.shape[0])
         if pool:
             it = range(eigs.shape[0])
@@ -319,12 +377,13 @@ class DDMStream:
                 plt.plot(etas_fit,thth.chi_par(etas_fit.value, *popt))
             return(etaFit,etaSig)
         except Exception as e:
+            print(e)
             return(np.nan,np.nan)
 
     def find_evals_pool(self,params):
         return(self.find_evals(*params))
     
-    def find_evals(self,id,eta,edges,mode : str = 'square', pad=False, cutTHTH = False): 
+    def find_evals(self,id,eta,edges,mode : str = 'norm', pad=False, cutTHTH = False): 
         ththMatrix = thth.thth_map(
                 self.ddms[id],
                 (self.delay-self.specularDelay[id]).to(u.us),
@@ -335,8 +394,13 @@ class DDMStream:
             ).real
         cents = (edges[1:]+edges[:-1])/2
         if cutTHTH:
-            ththMatrix = ththMatrix[:,eta*cents**2+self.specularDelay[id] < self.delay.max()]
-            ththMatrix = ththMatrix[-eta*cents**2+self.specularDelay[id] > self.delay.min()]
+            ththMatrix = ththMatrix[:,np.abs(cents)<np.sqrt((self.delay.max()-self.specularDelay[id])/eta)]
+            th1 = cents[np.abs(cents)<np.sqrt((self.delay.max()-self.specularDelay[id])/eta)]
+            ththMatrix = ththMatrix[np.abs(cents)<np.sqrt((self.specularDelay[id]-self.delay.min())/eta)]
+            th2 = cents[np.abs(cents)<np.sqrt((self.specularDelay[id]-self.delay.min())/eta)]
+            ththMatrix = ththMatrix[np.abs(th2)<min(self.doppler[-1]-(self.specularDoppler[id]+th1.max()),(self.specularDoppler[id]-th1.max())-self.doppler[0])]
+            th2 = th2[np.abs(th2)<min(self.doppler[-1]-(self.specularDoppler[id]+th1.max()),(self.specularDoppler[id]-th1.max())-self.doppler[0])]
+            ththMatrix = ththMatrix[np.abs(th2)<np.abs(th2).max()/2]
         U,S,W=np.linalg.svd(ththMatrix)
         if 'square' in mode.lower():
             S=S**2
