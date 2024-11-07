@@ -17,7 +17,7 @@ def download_archival_velocities(day,month,year,outputDir='.',type='wind'):
             ]
     c = cdsapi.Client()
     tStart=Time(f'{year}-{month}-{day}T00:00:00.000')
-    fname=f'{tStart.value[:4]}{tStart.value[5:7]}{tStart.value[8:10]}.grib'
+    fname=f'{tStart.value[:4]}{tStart.value[5:7]}{tStart.value[8:10]}_{type}.grib'
     fname=os.path.join(outputDir,fname)
     c.retrieve(
         'reanalysis-era5-single-levels',
