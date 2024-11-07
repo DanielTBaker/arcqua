@@ -6,22 +6,24 @@ import numpy as np
 ## Data Loaders
 import xarray as xr
 
-def download_archival_velocities(day,month,year,outputDir='.'):
+def download_archival_velocities(day,month,year,outputDir='.',type='wind'):
+    if type == 'wind':
+        variables = ['10m_u_component_of_wind','10m_v_component_of_wind']
+    if type == 'wave':
+        variables = [
+                'mean_direction_of_total_swell',
+                'mean_direction_of_wind_waves',
+                'mean_wave_direction',
+            ]
     c = cdsapi.Client()
     tStart=Time(f'{year}-{month}-{day}T00:00:00.000')
-    fname=f'{tStart.value[:4]}{tStart.value[5:7]}{tStart.value[8:10]}.nc'
+    fname=f'{tStart.value[:4]}{tStart.value[5:7]}{tStart.value[8:10]}.grib'
     fname=os.path.join(outputDir,fname)
     c.retrieve(
         'reanalysis-era5-single-levels',
         {
             'product_type': 'reanalysis',
-            'variable': [
-                '10m_u_component_of_wind',
-                '10m_v_component_of_wind',
-                'mean_direction_of_total_swell',
-                'mean_direction_of_wind_waves',
-                'mean_wave_direction',
-            ],
+            'variable': variables,
             'year': f'{year}',
             'month': f'{month}',
             'day': [f'{day}'],
@@ -35,7 +37,7 @@ def download_archival_velocities(day,month,year,outputDir='.'):
                 '18:00', '19:00', '20:00',
                 '21:00', '22:00', '23:00',
             ],
-            'format': 'netcdf',
+            'format': 'grib',
         },
         fname)
     
@@ -43,7 +45,7 @@ def download_CYGNNS_data(day,month,year,outputDir='.', verbose=False):
     tStart=Time(f'{year}-{month}-{day}T00:00:00.000')
     tEnd=tStart+1*u.day
     outputDir = os.path.join(outputDir,'data')
-    prefix = f'podaac-data-downloader -c CYGNSS_L1_V3.1 -d {outputDir} --start-date '
+    prefix = f'podaac-data-downloader -c CYGNSS_L1_V3.2 -d {outputDir} --start-date '
     cmd = prefix + tStart.value[:-4]+'Z --end-date '+tEnd.value[:-4]+'Z -e \"\"'
     if verbose:
         cmd += ' --verbose'

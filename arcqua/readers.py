@@ -213,33 +213,37 @@ class DDMStream:
         else:
             plt.show()
 
-    def quick_curvatures(self,plot=False):
+    def quick_curvatures(self,fraction = .5,plot=False):
         deltaDelay = self.delay[1]-self.delay[0]
         specID = np.floor((self.specularDelay - (self.delay[0]-deltaDelay/2))/deltaDelay).astype(int)
-        lineID = (specID + self.delay.shape[0]-1)//2
+        lineID = ((1.-fraction)*specID + fraction*(self.delay.shape[0]-1)).astype(int)
         # lineID = np.ones(stream.nSamples,dtype=int)*(stream.delay.shape[0]-1)
         new = np.copy(self.ddms[np.linspace(0,self.nSamples-1,self.nSamples,dtype=int),lineID,:])
         if plot:
             plt.figure(figsize=(8,16))
             plt.subplot(121)
             plt.imshow(new,origin='lower',aspect='auto',extent=thth.ext_find(self.doppler,self.offsetTime*u.s),norm=LogNorm(),interpolation='nearest')
-        def gau_fit(x,A1,A2,O,B,C):
-            return(A1*np.exp(-np.power((x-O)/B,2)/2)+A2*np.exp(-np.power((x+O)/B,2)/2)+C)
+        def gau_fit(x,A1,A2,O,B,C,C2):
+            return(A1*np.exp(-np.power((x-O)/B,2)/2)+A2*np.exp(-np.power((x+O)/B,2)/2)+C+C2*(1-1/(1+np.exp(-(np.abs(x)-(O+B/2))/B))))
         
         fit = new*0
         dtau = self.delay[lineID] - self.specularDelay
         dfd = np.zeros(self.nSamples)*u.Hz
         for i in range(new.shape[0]):
-            if i == 0:
-                Cinit = np.median(self.ddms[i])
-                Ainit = new[i].max()-Cinit
-                Oinit = np.abs(self.doppler[np.argmax(new[i])].value.max()-self.specularDoppler[i].value)
-                Binit = Oinit
-                p0=[Ainit,Ainit,Oinit,Binit,Cinit]
-            else:
-                p0 = popt
-            
-            popt,pcov=curve_fit(gau_fit,self.doppler.value-self.specularDoppler[i].value,new[i],p0=p0,bounds=[[0,0,0,0,0],[np.inf,np.inf,np.inf,np.inf,np.inf]],max_nfev=10000)
+            Cinit = max(np.median(self.ddms[i]),0)
+            Oinit = np.abs(self.doppler[np.argmax(new[i])].value.max()-self.specularDoppler[i].value)
+            C2init = max(np.nan_to_num(np.nanmedian(new[i,np.abs(self.doppler-self.specularDoppler[i]).value<Oinit]))-Cinit,0)
+
+            Ainit = np.nan_to_num(new[i].max()-(Cinit+C2init))
+            Binit = Oinit
+            p0=[Ainit,Ainit,Oinit,Binit,Cinit,C2init]
+            popt,pcov=curve_fit(gau_fit,
+                                self.doppler.value-self.specularDoppler[i].value,
+                                new[i],
+                                p0=p0,
+                                bounds=[[0,0,0,0,-np.inf,-np.inf],
+                                        [np.inf,np.inf,np.inf,np.inf,np.inf,np.inf]],
+                                max_nfev=10000)
             fit[i] = gau_fit(self.doppler.value,*popt)
             dfd[i] = popt[2]*u.Hz
         if plot:
@@ -377,7 +381,6 @@ class DDMStream:
                 plt.plot(etas_fit,thth.chi_par(etas_fit.value, *popt))
             return(etaFit,etaSig)
         except Exception as e:
-            print(e)
             return(np.nan,np.nan)
 
     def find_evals_pool(self,params):
@@ -569,15 +572,9 @@ class DDMStream:
                                 y=self.specPos[:,1],
                                 z=self.specPos[:,2])
         closestT=abs(self.times[:, None] - windTimes[None, :]).argmin(axis=-1)
-        closestLon=abs(np.mod(specularLoc.lon,360*u.deg)[:, None] - windLons[None, :]).argmin(axis=-1)
+        closestLon=abs(np.mod(specularLoc.lon,360*u.deg)[:, None] - np.mod(windLons[None, :],360*u.deg)).argmin(axis=-1)
         closestLat=abs(specularLoc.lat[:, None] - windLats[None, :]).argmin(axis=-1)
-
-        halfLon = np.linspace(0,359.5,720)*u.deg
-        halfLat =  np.linspace(90,-90,361)*u.deg
-
-        closestHalfLon=abs(np.mod(specularLoc.lon,360*u.deg)[:, None] - halfLon[None, :]).argmin(axis=-1)
-        closestHalfLat=abs(specularLoc.lat[:, None] - halfLat[None, :]).argmin(axis=-1)
-        return(closestT,closestLat,closestLon,closestHalfLat,closestHalfLon)
+        return(closestT,closestLat,closestLon)
     
     def load_ECMWF(self,windData):
         windTimes = Time(windData.time)
@@ -586,13 +583,19 @@ class DDMStream:
         windLons = np.array(windData.longitude)*u.deg
         windLats = np.array(windData.latitude)*u.deg
 
-        closestT,closestLat,closestLon,closestHalfLat,closestHalfLon = self.get_ECMWF_index(windTimes,windLats,windLons)
-        self.ECMWF = {}
-        self.ECMWF.update({'windU' : np.array(windData.u10)[closestT,closestLat,closestLon]*u.m/u.s})
-        self.ECMWF.update({'windV' : np.array(windData.v10)[closestT,closestLat,closestLon]*u.m/u.s})
-        self.ECMWF.update({'meanWaveDirection' : np.array(windData.mwd)[closestT,closestHalfLat,closestHalfLon]*u.deg})
-        self.ECMWF.update({'meanSwellDirection' : np.array(windData.mdts)[closestT,closestHalfLat,closestHalfLon]*u.deg})
-        self.ECMWF.update({'meanWindWaveDirection' : np.array(windData.mdww)[closestT,closestHalfLat,closestHalfLon]*u.deg})
+        closestT,closestLat,closestLon = self.get_ECMWF_index(windTimes,windLats,windLons)
+        if not hasattr(self,'ECMWF'):
+            self.ECMWF = {}
+        if 'u10' in windData.variables:
+            self.ECMWF.update({'windU' : np.array(windData.u10)[closestT,closestLat,closestLon]*u.m/u.s})
+        if 'v10' in windData.variables:
+            self.ECMWF.update({'windV' : np.array(windData.v10)[closestT,closestLat,closestLon]*u.m/u.s})
+        if 'mdts' in windData.variables:
+            self.ECMWF.update({'Mean Direction Total Swell' : np.array(windData.mdts)[closestT,closestLat,closestLon]*u.deg})
+        if 'mdww' in windData.variables:
+            self.ECMWF.update({'Mean Direction Wind Wave' : np.array(windData.mdww)[closestT,closestLat,closestLon]*u.deg})
+        if 'mwd' in windData.variables:
+            self.ECMWF.update({'Mean Wave Direction' : np.array(windData.mwd)[closestT,closestLat,closestLon]*u.deg})
 
 
     def save(self,fileName=None):
@@ -740,12 +743,12 @@ class TRITON():
             if clean:
                 os.remove(os.path.join(dataDir,fileName))
     def check_useable(self,fileName):
-        data = xr.load_dataset(fileName,engine='netcdf4')
+        data = xr.load_dataset(fileName)
         useable = (np.array(data.quality_flags) == 0) * (np.array(data.quality_flags_2) != 0)
         return(np.any(useable))
     def parse_cygnss_data(self,fileName):
         freq = 1.57542*u.GHz
-        data = xr.load_dataset(fileName,engine='netcdf4')
+        data = xr.load_dataset(fileName)
         
         ddms = np.array(data.brcs)
         times = np.array(data.ddm_timestamp_utc)
@@ -856,7 +859,7 @@ class TRITON():
 
 
         metaName = fileName.split('CorDDM')[0]+'metadata'+fileName.split('CorDDM')[1]
-        meta = xr.load_dataset(metaName,engine = 'netcdf4')
+        meta = xr.load_dataset(metaName)
         spDelay = np.array(meta['SP_CodePhase_shift'])[useable]*scale
         spDoppler = np.array(meta['SP_DopplerFrequency_shift'])[useable]*u.Hz
 
@@ -934,6 +937,8 @@ class TRITON():
         if len(dataFolderUrls)>0:
             if not os.path.exists(os.path.join(self.rootDir,dateString)):
                 os.makedirs(os.path.join(self.rootDir,dateString))
+            if not os.path.exists(os.path.join(self.rootDir,dateString,'triton')):
+                os.makedirs(os.path.join(self.rootDir,dateString,'triton'))
             br.open(dataFolderUrls[0])
             files = [(link.absolute_url,link.text) for link in br.links() if link.text[:7]=="TRITON_" and link.text[-2:]=='nc']
             for pair in files:
