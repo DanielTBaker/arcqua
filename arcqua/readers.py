@@ -145,8 +145,9 @@ class DDMStream:
         plt.plot(self.specularDoppler[id],self.specularDelay[id].to(u.us),'g.')
         ## Include best fit arc if given
         if hasattr(self, 'etas'):
-            plt.plot(self.doppler,
-                     (self.etas[id]*(self.doppler-self.specularDoppler[id])**2 + self.specularDelay[id]).to(u.us))
+            dopRange = np.linspace(self.doppler[0],self.doppler[-1],5001)+self.specularDoppler[id]
+            plt.plot(dopRange,
+                     (self.etas[id]*(dopRange-self.specularDoppler[id])**2 + self.specularDelay[id]).to(u.us))
             plt.ylim(extent[2:])
         ## Save file if name given
         if fname:
@@ -237,22 +238,26 @@ class DDMStream:
             Ainit = np.nan_to_num(new[i].max()-(Cinit+C2init))
             Binit = Oinit
             p0=[Ainit,Ainit,Oinit,Binit,Cinit,C2init]
-            popt,pcov=curve_fit(gau_fit,
-                                self.doppler.value-self.specularDoppler[i].value,
-                                new[i],
-                                p0=p0,
-                                bounds=[[0,0,0,0,-np.inf,-np.inf],
-                                        [np.inf,np.inf,np.inf,np.inf,np.inf,np.inf]],
-                                max_nfev=10000)
-            fit[i] = gau_fit(self.doppler.value,*popt)
-            dfd[i] = popt[2]*u.Hz
+            try:
+                popt,pcov=curve_fit(gau_fit,
+                                    self.doppler.value-self.specularDoppler[i].value,
+                                    new[i],
+                                    p0=p0,
+                                    bounds=[[0,0,0,0,-np.inf,-np.inf],
+                                            [np.inf,np.inf,np.inf,np.inf,np.inf,np.inf]],
+                                    max_nfev=10000)
+                fit[i] = gau_fit(self.doppler.value,*popt)
+                dfd[i] = popt[2]*u.Hz
+            except:
+                fit[i] = np.nan
+                dfd[i] = np.nan
         if plot:
             plt.subplot(122)
             plt.imshow(fit,origin='lower',aspect='auto',extent=thth.ext_find(self.doppler,self.offsetTime*u.s),norm=LogNorm(),interpolation='nearest')
         
         self.quickEtas = (dtau/dfd**2).to(u.s**3)
 
-    def fit_curvatures(self, fw = .1,lowFraction = .1, highFraction = 10.,
+    def fit_curvatures(self, fw = .1,lowFraction = .1, highFraction = 10., reference = None,
                         edges = None,
                        mode='norm',progress = -np.inf, pool = None, cutTHTH = False,**kwargs):
         """
@@ -294,8 +299,29 @@ class DDMStream:
             it = tqdm(range(self.nSamples),position=progress,leave=False)
         ## Loop over all samples for theta-theta eigenvalue search
         for id in it:
-            l0 = np.log10(lowFraction*self.quickEtas[id].to_value(u.s**3))
-            l1 = np.log10(highFraction*self.quickEtas[id].to_value(u.s**3))
+            if reference == None:
+                l0 = np.log10(lowFraction*self.quickEtas[id].to_value(u.s**3))
+                l1 = np.log10(highFraction*self.quickEtas[id].to_value(u.s**3))
+            else:
+                if np.isfinite(reference[id]) and reference[id]>0:
+                    l0 = np.log10(lowFraction*reference[id].to_value(u.s**3))
+                    l1 = np.log10(highFraction*reference[id].to_value(u.s**3))
+                else:
+                    useableEtas = self.etas[:id]
+                    useableEtas = useableEtas[np.isfinite(useableEtas)]
+                    if useableEtas.shape[0]>0:
+                        l0 = np.log10(lowFraction*useableEtas[-1].to_value(u.s**3))
+                        l1 = np.log10(highFraction*useableEtas[-1].to_value(u.s**3))
+                    else:
+                        useableEtas = reference[:id]
+                        useableEtas = useableEtas[np.isfinite(useableEtas)]
+                        if useableEtas.shape[0]>0:
+                            l0 = np.log10(lowFraction*useableEtas[-1].to_value(u.s**3))
+                            l1 = np.log10(highFraction*useableEtas[-1].to_value(u.s**3))
+                        else:
+                            self.etas[id] = np.nan
+                            self.etaErrors[id] = np.nan
+                            continue
             neta = int(1 + (l1-l0)/np.log10(1+fw/10))
             etaSearch = np.logspace(l0,l1,neta)*u.s**3
             self.etas[id], self.etaErrors[id] = self.single_fit(id,etaSearch,edges,fw,widthEta = etaSearch.max(),mode=mode,progress=progress+1,pool=pool,cutTHTH=cutTHTH)
@@ -464,20 +490,26 @@ class DDMStream:
         cents=(edges[1:]+edges[:-1])/2
         for sampleID in range(self.nSamples):
             eta = etaInterp(self.offsetTime[sampleID])<<self.etas.unit
-            ththMatrix= thth.thth_map(
-                self.ddms[sampleID],
-                (self.delay-self.specularDelay[sampleID]).to(u.us),
-                (self.doppler-self.specularDoppler[sampleID]).to(u.mHz),
-                eta,
-                edges.to(u.mHz),
-                hermetian=False,
-            )
-            ththMatrix = ththMatrix[-eta*cents**2+self.specularDelay[sampleID]>self.delay.min()][:,eta*cents**2+self.specularDelay[sampleID]<self.delay.max()]
-            centsX = cents[eta*cents**2+self.specularDelay[sampleID]<self.delay.max()]
-            U,S,W = np.linalg.svd(ththMatrix)
-            left = W[0,centsX<0]
-            right = W[0,centsX>0]
-            self.asymm[sampleID]=(np.sum(left)-np.sum(right))/((np.sum(left)+np.sum(right))/2)
+            if np.isfinite(eta) and eta>0:
+                ththMatrix= thth.thth_map(
+                    self.ddms[sampleID],
+                    (self.delay-self.specularDelay[sampleID]).to(u.us),
+                    (self.doppler-self.specularDoppler[sampleID]).to(u.mHz),
+                    eta,
+                    edges.to(u.mHz),
+                    hermetian=False,
+                )
+                ththMatrix = ththMatrix[-eta*cents**2+self.specularDelay[sampleID]>self.delay.min()][:,eta*cents**2+self.specularDelay[sampleID]<self.delay.max()]
+                centsX = cents[eta*cents**2+self.specularDelay[sampleID]<self.delay.max()]
+                U,S,W = np.linalg.svd(ththMatrix)
+                if centsX.shape[0]>0:
+                    left = W[0,centsX<0]
+                    right = W[0,centsX>0]
+                    self.asymm[sampleID]=(np.sum(left)-np.sum(right))/((np.sum(left)+np.sum(right))/2)
+                else:
+                    self.asymm[sampleID] = np.nan
+            else:
+                self.asymm[sampleID] = np.nan
         self.asymmCalc = True
 
 
